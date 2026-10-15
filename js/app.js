@@ -137,6 +137,7 @@
 
     afterBiomeEdit() {
       this.renderer.biomeCount = null;
+      this.renderer.invalidateSymbols();
       this.editor.requestDraw();
       this.renderBiomeInfo();
       this.changed();
