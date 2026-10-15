@@ -5,7 +5,7 @@
   const FMM = window.FMM;
 
   const CLIMATES = {
-    gemaessigt: { label: 'Gemäßigt (kalt im Norden)', top: 0.05, bottom: 0.85 },
+    gemaessigt: { label: 'Gemäßigt (kalt im Norden)', top: 0.12, bottom: 0.85 },
     kalt: { label: 'Kalt / Eiszeit', top: -0.05, bottom: 0.55 },
     warm: { label: 'Warm / Tropisch', top: 0.38, bottom: 1.05 },
     aequator: { label: 'Äquator in der Mitte', equator: true },
@@ -167,6 +167,28 @@
     }
 
     d.riverDist = riverDist;
+
+    // Geländekrümmung: Höhe minus geglättete Umgebung (>0 Grate, <0 Täler) für plastisches Relief
+    const r = 4, hb = new Float32Array(N), tmp = new Float32Array(N);
+    for (let y = 0; y < H; y++) {
+      let acc = 0;
+      const row = y * W;
+      for (let x = -r; x <= r; x++) acc += Math.max(0, h[row + FMM.clamp(x, 0, W - 1)]);
+      for (let x = 0; x < W; x++) {
+        tmp[row + x] = acc / (2 * r + 1);
+        acc += Math.max(0, h[row + Math.min(W - 1, x + r + 1)]) - Math.max(0, h[row + Math.max(0, x - r)]);
+      }
+    }
+    for (let x = 0; x < W; x++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += tmp[FMM.clamp(y, 0, H - 1) * W + x];
+      for (let y = 0; y < H; y++) {
+        hb[y * W + x] = acc / (2 * r + 1);
+        acc += tmp[Math.min(H - 1, y + r + 1) * W + x] - tmp[Math.max(0, y - r) * W + x];
+      }
+    }
+    for (let i = 0; i < N; i++) hb[i] = Math.max(0, h[i]) - hb[i];
+    d.curv = hb;
     d.filled = filled;
     d.down = down;
     d.flux = flux;

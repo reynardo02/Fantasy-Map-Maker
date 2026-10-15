@@ -20,7 +20,7 @@
   }
 
   const STYLE = {
-    geo: { river: '#2f6fae', riverAlpha: 0.95, text: '#1d1a16', halo: 'rgba(255,255,255,0.75)', sea: '#d8ecf5', seaHalo: 'rgba(20,50,80,0.55)', city: '#1d1a16', cityFill: '#ffffff', border: [120, 30, 30] },
+    geo: { river: '#3473ab', riverAlpha: 0.92, text: '#1d1a16', halo: 'rgba(255,255,255,0.75)', sea: '#d8ecf5', seaHalo: 'rgba(20,50,80,0.55)', city: '#1d1a16', cityFill: '#ffffff', border: [120, 30, 30] },
     political: { river: '#4a80aa', riverAlpha: 0.9, text: '#2a221c', halo: 'rgba(250,246,236,0.85)', sea: '#356283', seaHalo: 'rgba(235,245,250,0.7)', city: '#2a221c', cityFill: '#ffffff', border: [70, 52, 48] },
     antique: { river: '#4f6878', riverAlpha: 0.9, text: '#3b2a18', halo: 'rgba(236,222,186,0.8)', sea: '#5a4a32', seaHalo: 'rgba(236,222,186,0.6)', city: '#3b2a18', cityFill: '#efe1bd', border: [120, 50, 40] },
   };
@@ -94,7 +94,7 @@
       const h = map.heights, moist = map.moisture, sm = map.stateMap;
       const lake = d.lake, cd = d.coastDist, bd = d.borderDist, latT = d.latT;
       const paper = this.paper, veg = this.veg, fine = this.fine, biome = this.biome;
-      const rdist = d.riverDist, bmap = map.biomeMap;
+      const rdist = d.riverDist, bmap = map.biomeMap, curv = d.curv;
       const px = this.img.data;
       const BI = FMM.BIOME_ID;
       const forest = FMM.BIOMES.map((b) => FMM.isForest(b.id));
@@ -158,12 +158,16 @@
           const gy = gyC[i00] * w00 + gyC[i10] * w10 + gyC[i01] * w01 + gyC[i11] * w11;
 
           let shade = 1;
+          // Krümmung (Grate hell, Täler dunkel)
+          const cv = ocean ? 0 : curv[i00] * w00 + curv[i10] * w10 + curv[i01] * w01 + curv[i11] * w11;
           if (reliefAmt > 0 && !isLake && (!ocean || sty === 0)) {
-            const z = ocean ? zSea : zLand;
+            // Relief wird mit der Höhe kräftiger: Tiefland ruhig, Gebirge plastisch
+            const z = ocean ? zSea : zLand * (0.7 + hv * 0.9);
             const nx = -gx * z, ny = -gy * z;
             const len = Math.sqrt(nx * nx + ny * ny + 1);
             const dot = (nx * lx + ny * ly + lz) / len;
             shade = 1 + (dot / lz - 1) * reliefAmt * (ocean ? 0.6 : 1);
+            if (!ocean) shade *= 1 + FMM.clamp(cv * 5, -0.22, 0.14) * reliefAmt;
             if (shade < 0.3) shade = 0.3; else if (shade > maxShade) shade = maxShade;
           }
 
@@ -199,12 +203,16 @@
               const fn = fine[i00] * w00 + fine[i10] * w10 + fine[i01] * w01 + fine[i11] * w11;
               const rdi = rdist[i00] * w00 + rdist[i10] * w10 + rdist[i01] * w01 + rdist[i11] * w11;
               const ov = bmap[i];
-              const bi = ov !== 255 ? ov : FMM.classifyBiome(t, moist[i00] * w00 + moist[i10] * w10 + moist[i01] * w01 + moist[i11] * w11, hv, slope, rdi, v);
+              const bi = ov !== 255 ? ov : FMM.classifyBiome(t, moist[i00] * w00 + moist[i10] * w10 + moist[i01] * w01 + moist[i11] * w11, hv, slope, rdi, v, fn);
               biome[i] = bi;
               const c = FMM.BIOMES[bi].color;
               r = c[0]; g = c[1]; b = c[2];
               if (forest[bi]) {
-                const k = 0.84 + fn * 0.2; // Baumkronen
+                // Baumkronen: weiche Struktur + einzelne Kronen/Lücken, leichte Farbvariation im Laubwald
+                let k = 0.82 + fn * 0.22;
+                const hh = FMM.hash2(X, Y);
+                if (hh > 0.8) k *= 0.8; else if (hh < 0.1) k *= 1.1;
+                if (bi === BI.wald) { const q = FMM.clamp(0.5 + v, 0, 1) * 0.3; r += (104 - r) * q; g += (128 - g) * q; b += (58 - b) * q; }
                 r *= k; g *= k; b *= k;
               } else if (bi === BI.wueste) {
                 const k = 0.95 + 0.06 * Math.sin(fx * 0.55 + fy * 0.2 + v * 18); // Dünen
@@ -214,13 +222,18 @@
               } else if (bi === BI.savanne) {
                 if (fn > 0.5) { r *= 0.62; g *= 0.7; b *= 0.55; } // Baumgruppen
               } else if (bi === BI.fels) {
-                const k = 0.94 + fn * 0.08;
+                // Gesteinsschichten
+                const k = 0.9 + fn * 0.08 + 0.05 * Math.sin(hv * 90 + v * 6);
                 r *= k; g *= k; b *= k;
               } else if (bi !== BI.gletscher) {
                 const k = 0.95 + v * 0.07 + fn * 0.03;
                 r *= k; g *= k; b *= k;
               }
-              const snow = ov !== 255 && bi !== BI.fels ? 0 : FMM.smoothstep(0.12, 0.05, t) * (bi === BI.fels ? 1 : 0.6);
+              // Schneegrenze abhängig vom Breitengrad: im Kalten tiefer, im Warmen höher.
+              // Grate (positive Krümmung) tragen mehr Schnee, Täler weniger.
+              const snowLine = FMM.clamp(0.58 + (lt - 0.3) * 0.7, 0.36, 0.95);
+              const snow = ov !== 255 && bi !== BI.fels ? 0
+                : FMM.smoothstep(snowLine + 0.03, snowLine + 0.17, hv + cv * 3.5 + v * 0.03) * (bi === BI.fels ? 1 : 0.8);
               if (snow > 0 && bi !== BI.gletscher) { r += (244 - r) * snow; g += (247 - g) * snow; b += (250 - b) * snow; }
               // Strand: schmaler, weicher Sandsaum
               if (hv < 0.014 && t > 0.3) { const f = (0.014 - hv) / 0.014 * 0.6; r += (218 - r) * f; g += (204 - g) * f; b += (164 - b) * f; }
@@ -272,34 +285,53 @@
 
     // ---------- Flüsse als Path2D nach Breitenstufen ----------
     buildRivers(map, d) {
-      const W = map.width;
+      const W = map.width, H = map.height;
       const T = d.riverThreshold;
-      const unit = Math.min(map.width, map.height) / 750;
-      const buckets = [];
-      const NB = 7;
-      for (let k = 0; k < NB; k++) buckets.push(new Path2D());
-      const widthOf = (i) => {
-        const f = Math.max(0, d.flux[i] - T) / (T * 25);
-        return Math.min(NB - 1, Math.floor(Math.sqrt(f) * NB * 0.9));
-      };
-      const pt = (i) => {
-        const x = i % W, y = (i / W) | 0;
-        return [x + 0.5 + (FMM.hash2(x, y) - 0.5) * 0.7, y + 0.5 + (FMM.hash2(y + 7, x + 3) - 0.5) * 0.7];
-      };
+      const unit = Math.min(W, H) / 750;
+      const NB = 16, minW = 0.45, maxW = 3.2;
+      const buckets = Array.from({ length: NB }, () => new Path2D());
+      // stufenlose Breite: dünn an der Quelle, breit an der Mündung
+      const widthOf = (f) => minW + (maxW - minW) * Math.sqrt(FMM.clamp((f - T) / (T * 40), 0, 1));
+      const bucketOf = (w) => Math.min(NB - 1, Math.max(0, Math.round(((w - minW) / (maxW - minW)) * (NB - 1))));
+      const noise = FMM.createNoise2D(FMM.makeRng('maeander'));
+
       for (const path of d.rivers) {
-        const pts = path.map(pt);
-        for (let k = 0; k < pts.length - 1; k++) {
-          const a = path[k], bI = path[k + 1];
-          if (d.lake[a] && d.lake[bI]) continue;
-          const p0 = k > 0 ? [(pts[k - 1][0] + pts[k][0]) / 2, (pts[k - 1][1] + pts[k][1]) / 2] : pts[0];
-          const p2 = [(pts[k][0] + pts[k + 1][0]) / 2, (pts[k][1] + pts[k + 1][1]) / 2];
-          const end = k === pts.length - 2 ? pts[k + 1] : p2;
-          const pa = buckets[widthOf(a)];
-          pa.moveTo(p0[0], p0[1]);
-          pa.quadraticCurveTo(pts[k][0], pts[k][1], end[0], end[1]);
+        // Punkte als [x, y, Breite, ausblenden] (ausblenden: in Seen und auf Gletschern)
+        let P = [];
+        for (const i of path) {
+          const x = i % W, y = (i / W) | 0;
+          const hide = d.lake[i] || FMM.cellTemp(d.latT[y], Math.max(0, map.heights[i])) < 0.03 ? 1 : 0;
+          P.push(x + 0.5, y + 0.5, widthOf(d.flux[i]), hide);
+        }
+        P = chaikin4(chaikin4(P));
+        const n = P.length / 4;
+        if (n < 2) continue;
+
+        // Mäander: seitliche Auslenkung, stark im Flachland, schwach im Gebirge
+        const out = P.slice();
+        const ph = FMM.hash2(path[0] % W, (path[0] / W) | 0) * 100;
+        let sLen = 0;
+        for (let k = 1; k < n - 1; k++) {
+          const dx = P[4 * k + 4] - P[4 * k - 4], dy = P[4 * k + 5] - P[4 * k - 3];
+          const len = Math.hypot(dx, dy) || 1;
+          sLen += Math.hypot(P[4 * k] - P[4 * k - 4], P[4 * k + 1] - P[4 * k - 3]);
+          const ci = FMM.clamp(Math.floor(P[4 * k + 1]), 0, H - 1) * W + FMM.clamp(Math.floor(P[4 * k]), 0, W - 1);
+          const flat = 1 - FMM.smoothstep(0.02, 0.22, map.heights[ci]);
+          const amp = flat * Math.min(1, P[4 * k + 2] / 1.4) * 1.1;
+          const fade = Math.min(1, k / 8, (n - 1 - k) / 8);
+          const off = amp * fade * (0.65 * Math.sin(sLen * 0.55 + ph) + 0.6 * noise(sLen * 0.18, ph));
+          out[4 * k] += (-dy / len) * off;
+          out[4 * k + 1] += (dx / len) * off;
+        }
+
+        for (let k = 0; k < n - 1; k++) {
+          if (out[4 * k + 3] >= 0.5 && out[4 * k + 7] >= 0.5) continue;
+          const pa = buckets[bucketOf((out[4 * k + 2] + out[4 * k + 6]) / 2)];
+          pa.moveTo(out[4 * k], out[4 * k + 1]);
+          pa.lineTo(out[4 * k + 4], out[4 * k + 5]);
         }
       }
-      this.riverCache = { buckets, widths: buckets.map((_, k) => (0.8 + k * 0.5) * unit) };
+      this.riverCache = { buckets, widths: buckets.map((_, k) => (minW + (k / (NB - 1)) * (maxW - minW)) * unit) };
     }
 
     // ---------- Vektorebene ----------
@@ -694,6 +726,21 @@
       this.hitBoxes = saved;
       return c;
     }
+  }
+
+  // Chaikin-Glättung für Punkte mit vier Werten [x, y, Breite, Maske]; Endpunkte bleiben
+  function chaikin4(p) {
+    const n = p.length / 4;
+    if (n < 3) return p;
+    const out = [p[0], p[1], p[2], p[3]];
+    for (let k = 0; k < n - 1; k++) {
+      const a = 4 * k, b = 4 * k + 4;
+      for (const [f, g] of [[0.75, 0.25], [0.25, 0.75]]) {
+        out.push(p[a] * f + p[b] * g, p[a + 1] * f + p[b + 1] * g, p[a + 2] * f + p[b + 2] * g, Math.max(p[a + 3], p[b + 3]) > 0 && Math.min(p[a + 3], p[b + 3]) > 0 ? 1 : 0);
+      }
+    }
+    out.push(p[4 * n - 4], p[4 * n - 3], p[4 * n - 2], p[4 * n - 1]);
+    return out;
   }
 
   function rank(t) { return t === 'capital' ? 2 : t === 'city' ? 1 : 0; }
