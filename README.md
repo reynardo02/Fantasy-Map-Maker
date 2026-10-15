@@ -1,0 +1,72 @@
+# 🗺️ Fantasy Map Maker
+
+Ein Browser-Werkzeug zum Erstellen **realistisch aussehender Fantasy-Karten**, geografisch oder politisch. Karten lassen sich jederzeit weiterbearbeiten.
+
+![Geografische Ansicht](docs/vorschau-geografisch.png)
+![Politische Ansicht](docs/vorschau-politisch.png)
+
+Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt und keine Abhängigkeiten.
+
+## Starten
+
+- **Einfach:** `index.html` per Doppelklick im Browser öffnen (Chrome, Edge, Firefox oder Safari).
+- **Mit lokalem Server** (empfohlen, damit das Speichern im Browser überall zuverlässig funktioniert):
+  ```bash
+  npx http-server -p 8080
+  # danach http://localhost:8080 öffnen
+  ```
+- **Online:** Das Repository kann direkt über GitHub Pages veröffentlicht werden.
+
+## Funktionen
+
+### Weltgenerierung
+- Höhenkarte aus fraktalem Rauschen mit Domain Warping und Gebirgsketten aus Gratrauschen
+- Landformen: mehrere Kontinente, Superkontinent, große Insel, Archipel, Küstenregion oder freies Rauschen
+- Einstellbar: Landanteil, Gebirge, Strukturgröße, Flussdichte, Klima, Anzahl Staaten und Städte
+- **Gleicher Seed = gleiche Welt**
+- Klima und Biome (Eis, Tundra, Taiga, Wälder, Steppe, Wüste, Regenwald), Fels und Schnee im Hochgebirge
+- **Flüsse und Seen** aus einer echten Abflusssimulation (Senkenfüllung und Abflussakkumulation)
+- Staaten breiten sich von ihren Hauptstädten über das Gelände aus. Gebirge und Flüsse werden dabei zu natürlichen Grenzen.
+- Namensgenerator mit sechs Sprachstilen (nordisch, elbisch, romanisch, germanisch, orientalisch, rau) für Staaten, Städte und Meere
+
+### Darstellungsstile
+- **Geografisch:** Satelliten-ähnliches Relief mit Biomfarben und Meerestiefen
+- **Politisch:** Staatsfarben, Grenzen und Staatsnamen, die sich der Form des Staats anpassen
+- **Antik:** Pergament-Look mit Gradnetz, Rahmen und Vignette
+- Ebenen einzeln schaltbar: Relief, Flüsse, Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab
+
+### Bearbeiten
+| Werkzeug | Taste | Funktion |
+|---|---|---|
+| Bewegen | `V` / Leertaste halten | Karte verschieben, Städte und Texte anklicken und ziehen |
+| Anheben / Absenken | `H` / `T` | Gelände formen |
+| Glätten / Einebnen | `G` / `E` | Gelände weicher machen oder auf eine Höhe bringen |
+| Land / Meer | `L` / `M` | Neues Land aufschütten oder versenken |
+| Gebirge | `B` | Zerklüftete Gebirgszüge malen |
+| Staat malen | `P` | Gebiet einem Staat zuweisen („Herrenlos“ wirkt als Radierer) |
+| Städte | `C` | Städte setzen, verschieben, umbenennen, zur Hauptstadt machen |
+| Texte | `X` | Beschriftungen und Meeresnamen setzen; Staatsnamen verschieben und drehen |
+
+Weitere Tasten: `Strg+Z` rückgängig, `Strg+Y` wiederholen, `Strg+S` als Datei speichern, `Entf` löscht die Auswahl, `[` `]` ändern die Pinselgröße, `+` `-` `0` zoomen.
+
+Nach Geländeänderungen werden Flüsse, Seen und Küsten automatisch neu berechnet. Neues Land fällt an den angrenzenden Staat.
+
+### Speichern und Weiterbearbeiten
+- **Automatisch im Browser** (IndexedDB). Unter „Meine Karten“ stehen alle Karten mit Vorschaubild.
+- **Als Datei** (`.fmap`, komprimiertes JSON). Gut für Backups oder zum Weitergeben. Mit „Öffnen“ lädt man sie wieder.
+- **PNG-Export** in 1× bis 4× Auflösung, z. B. für den Druck.
+
+## Projektstruktur
+
+```
+index.html        Oberfläche
+css/style.css     Gestaltung
+js/core.js        Zufall (Seed), Simplex-Rauschen, Heap, Hilfsfunktionen
+js/names.js       Namensgenerator
+js/derive.js      Klima, Flüsse und Seen, Küstenabstand, Staatsstatistiken
+js/generator.js   Weltgenerierung (Gelände, Feuchtigkeit, Staaten, Städte, Meere)
+js/render.js      Darstellung (Rasterbild und Vektorebene)
+js/storage.js     Speichern und Laden (Datei und IndexedDB)
+js/editor.js      Werkzeuge, Pinsel, Zoom, Rückgängig
+js/app.js         Verknüpfung von allem und Bedienelemente
+```

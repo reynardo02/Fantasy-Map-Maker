@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fantasy Map Maker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🗺️ <span>Fantasy Map Maker</span></div>
+    <input id="mapName" class="map-name" type="text" value="" title="Name der Karte" spellcheck="false">
+    <nav class="actions">
+      <button id="btnNew" title="Neue Karte generieren">✨ Neu</button>
+      <button id="btnMaps" title="Gespeicherte Karten im Browser">📚 Meine Karten</button>
+      <button id="btnOpen" title="Karte aus Datei öffnen (.fmap)">📂 Öffnen</button>
+      <button id="btnSave" title="Karte als Datei speichern (.fmap) – zum späteren Weiterbearbeiten">💾 Datei speichern</button>
+      <button id="btnExport" title="Karte als Bild exportieren">🖼️ PNG</button>
+      <span class="sep"></span>
+      <button id="btnUndo" title="Rückgängig (Strg+Z)">↶</button>
+      <button id="btnRedo" title="Wiederholen (Strg+Y)">↷</button>
+    </nav>
+    <div id="status" class="status"></div>
+    <input id="fileInput" type="file" accept=".fmap,.json,application/json" hidden>
+  </header>
+
+  <main class="layout">
+    <aside class="tools" id="tools">
+      <div class="tool-group">
+        <div class="group-title">Ansicht</div>
+        <button class="tool active" data-tool="pan" title="Verschieben (Leertaste halten)"><span>✋</span>Bewegen</button>
+      </div>
+      <div class="tool-group">
+        <div class="group-title">Gelände</div>
+        <button class="tool" data-tool="raise" title="Gelände anheben"><span>⛰️</span>Anheben</button>
+        <button class="tool" data-tool="lower" title="Gelände absenken"><span>🕳️</span>Absenken</button>
+        <button class="tool" data-tool="smooth" title="Gelände glätten"><span>〰️</span>Glätten</button>
+        <button class="tool" data-tool="flatten" title="Auf Höhe des Startpunkts einebnen"><span>▬</span>Einebnen</button>
+        <button class="tool" data-tool="land" title="Land malen"><span>🟫</span>Land</button>
+        <button class="tool" data-tool="sea" title="Meer malen"><span>🌊</span>Meer</button>
+        <button class="tool" data-tool="mountain" title="Gebirgszug malen"><span>🏔️</span>Gebirge</button>
+      </div>
+      <div class="tool-group">
+        <div class="group-title">Politik</div>
+        <button class="tool" data-tool="state" title="Gebiet einem Staat zuweisen"><span>🖌️</span>Staat malen</button>
+        <button class="tool" data-tool="city" title="Städte setzen, auswählen, verschieben"><span>🏰</span>Städte</button>
+        <button class="tool" data-tool="label" title="Beschriftungen setzen, auswählen, verschieben"><span>🔤</span>Texte</button>
+      </div>
+      <div class="tool-group brush" id="brushSettings">
+        <div class="group-title">Pinsel</div>
+        <label>Größe <output id="brushSizeOut">20</output>
+          <input id="brushSize" type="range" min="2" max="120" value="20">
+        </label>
+        <label>Stärke <output id="brushStrengthOut">50</output>
+          <input id="brushStrength" type="range" min="5" max="100" value="50">
+        </label>
+      </div>
+    </aside>
+
+    <section class="viewport" id="viewport">
+      <canvas id="mapCanvas"></canvas>
+      <div class="hint" id="hint"></div>
+      <div class="coords" id="coords"></div>
+      <div class="zoom">
+        <button id="zoomIn" title="Hineinzoomen">＋</button>
+        <button id="zoomFit" title="Ganze Karte">⤢</button>
+        <button id="zoomOut" title="Herauszoomen">－</button>
+      </div>
+    </section>
+
+    <aside class="panel" id="panel">
+      <section class="card">
+        <h3>Darstellung</h3>
+        <div class="seg" id="styleSeg">
+          <button data-style="geo">Geografisch</button>
+          <button data-style="political">Politisch</button>
+          <button data-style="antique">Antik</button>
+        </div>
+        <div class="layers" id="layers">
+          <label><input type="checkbox" data-layer="relief"> Relief</label>
+          <label><input type="checkbox" data-layer="rivers"> Flüsse</label>
+          <label><input type="checkbox" data-layer="stateFill"> Staatsfarben</label>
+          <label><input type="checkbox" data-layer="borders"> Grenzen</label>
+          <label><input type="checkbox" data-layer="cities"> Städte</label>
+          <label><input type="checkbox" data-layer="stateLabels"> Staatsnamen</label>
+          <label><input type="checkbox" data-layer="labels"> Texte &amp; Meere</label>
+          <label><input type="checkbox" data-layer="grid"> Gradnetz</label>
+          <label><input type="checkbox" data-layer="compass"> Kompass</label>
+          <label><input type="checkbox" data-layer="scale"> Maßstab</label>
+        </div>
+        <label class="row">Relief-Stärke
+          <input id="reliefStrength" type="range" min="0.2" max="2.5" step="0.1" value="1">
+        </label>
+      </section>
+
+      <section class="card" id="selectionCard" hidden>
+        <h3 id="selTitle">Auswahl</h3>
+        <div id="selBody"></div>
+      </section>
+
+      <section class="card">
+        <h3>Staaten <span class="count" id="stateCount"></span></h3>
+        <ul class="state-list" id="stateList"></ul>
+        <div class="btn-row">
+          <button id="btnAddState" title="Neuen Staat anlegen">＋ Staat</button>
+          <button id="btnRecalcBorders" title="Grenzen anhand der Hauptstädte und des Geländes neu berechnen">↻ Grenzen neu</button>
+        </div>
+        <div id="stateEditor"></div>
+      </section>
+
+      <section class="card">
+        <h3>Karte</h3>
+        <label class="row">Klima
+          <select id="climateSelect"></select>
+        </label>
+        <label class="row">Flussdichte
+          <input id="riverDensity" type="range" min="0.3" max="3" step="0.1" value="1">
+        </label>
+        <label class="row">km pro Pixel
+          <input id="kmPerPixel" type="number" min="0.1" max="100" step="0.1" value="4">
+        </label>
+        <div class="info" id="mapInfo"></div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- Dialog: neue Karte -->
+  <dialog id="newDialog">
+    <form method="dialog" id="newForm">
+      <h2>Neue Welt erschaffen</h2>
+      <div class="grid2">
+        <label>Name <input name="name" value="Neue Welt"></label>
+        <label>Seed <span class="inline"><input name="seed" id="seedInput"><button type="button" id="btnSeed" title="Zufälliger Seed">🎲</button></span></label>
+        <label>Größe <select name="size" id="sizeSelect"></select></label>
+        <label>Landform <select name="landType" id="landTypeSelect"></select></label>
+        <label>Landanteil <output>40 %</output><input name="landFraction" type="range" min="0.15" max="0.75" step="0.01" value="0.4"></label>
+        <label>Gebirge <output>50 %</output><input name="mountains" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+        <label>Strukturgröße <output>100 %</output><input name="featureScale" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+        <label>Flussdichte <output>100 %</output><input name="riverDensity" type="range" min="0.3" max="3" step="0.1" value="1"></label>
+        <label>Klima <select name="climate" id="newClimate"></select></label>
+        <label>Kultur der Namen <select name="culture" id="cultureSelect"></select></label>
+        <label>Anzahl Staaten <input name="stateCount" type="number" min="1" max="60" value="10"></label>
+        <label>Anzahl Städte <input name="cityCount" type="number" min="0" max="300" value="40"></label>
+      </div>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate>Abbrechen</button>
+        <button value="ok" class="primary" id="btnGenerate">✨ Generieren</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog: gespeicherte Karten -->
+  <dialog id="mapsDialog">
+    <h2>Meine Karten</h2>
+    <p class="muted">Karten werden automatisch in diesem Browser gespeichert. Für Backups oder andere Geräte nutze „Datei speichern“.</p>
+    <div class="map-grid" id="mapGrid"></div>
+    <div class="dialog-actions">
+      <button id="btnCloseMaps">Schließen</button>
+    </div>
+  </dialog>
+
+  <!-- Dialog: Export -->
+  <dialog id="exportDialog">
+    <form method="dialog">
+      <h2>Als Bild exportieren</h2>
+      <label>Auflösung
+        <select id="exportScale">
+          <option value="1">1× (Originalgröße)</option>
+          <option value="2" selected>2× (empfohlen)</option>
+          <option value="3">3× (Druck)</option>
+          <option value="4">4× (großer Druck)</option>
+        </select>
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel">Abbrechen</button>
+        <button value="ok" class="primary">Exportieren</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="busy" id="busy" hidden><div class="spinner"></div><div id="busyText">Erschaffe Welt …</div></div>
+  <div class="toast" id="toast"></div>
+
+  <script src="js/core.js"></script>
+  <script src="js/names.js"></script>
+  <script src="js/derive.js"></script>
+  <script src="js/generator.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
