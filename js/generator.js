@@ -4,7 +4,7 @@
   const FMM = window.FMM;
 
   const LAND_TYPES = {
-    kontinente: { label: 'Mehrere Kontinente', blobs: [2, 4], radius: [0.22, 0.34], noise: 0.55, edge: 0.12 },
+    kontinente: { label: 'Mehrere Kontinente (2–3 gleich große)', equal: true, blobs: [2, 3], radius: [0.26, 0.3], noise: 0.42, edge: 0.1 },
     pangaea: { label: 'Superkontinent', blobs: [1, 1], radius: [0.42, 0.5], noise: 0.5, edge: 0.14 },
     insel: { label: 'Große Insel', blobs: [1, 1], radius: [0.3, 0.36], noise: 0.45, edge: 0.2 },
     archipel: { label: 'Archipel / Inselwelt', blobs: [10, 18], radius: [0.06, 0.13], noise: 0.6, edge: 0.1 },
@@ -33,7 +33,31 @@
     // Kontinentkerne
     const blobs = [];
     const count = rng.int(type.blobs[0], type.blobs[1]);
-    for (let b = 0; b < count; b++) {
+    if (type.equal) {
+      // feste Anordnung, damit die Kontinente sich nicht überlappen und ähnlich viel Platz haben
+      const m = Math.min(W, H);
+      let pos;
+      if (count === 2) {
+        const tilt = rng.range(-0.12, 0.12);
+        pos = [[0.27, 0.5 - tilt], [0.73, 0.5 + tilt]];
+        if (W / H < 1.2) pos = [[0.5 - tilt, 0.27], [0.5 + tilt, 0.73]];
+      } else if (W / H >= 1.45) {
+        pos = [[0.18, rng.range(0.38, 0.62)], [0.5, rng.range(0.38, 0.62)], [0.82, rng.range(0.38, 0.62)]];
+      } else {
+        const up = rng.chance(0.5);
+        pos = up ? [[0.25, 0.33], [0.75, 0.33], [0.5, 0.72]] : [[0.25, 0.67], [0.75, 0.67], [0.5, 0.28]];
+      }
+      for (const [px, py] of pos) {
+        blobs.push({
+          x: (px + rng.range(-0.04, 0.04)) * W,
+          y: (py + rng.range(-0.04, 0.04)) * H,
+          r: m * (count === 2 ? 0.34 : 0.27) * rng.range(0.92, 1.08),
+          sx: count === 3 && W / H >= 1.45 ? rng.range(0.6, 0.8) : rng.range(0.85, 1.25),
+          w: 1,
+        });
+      }
+    }
+    for (let b = 0; b < (type.equal ? 0 : count); b++) {
       const r = rng.range(type.radius[0], type.radius[1]);
       blobs.push({
         x: rng.range(0.15 + r * 0.4, 0.85 - r * 0.4) * W,
@@ -49,6 +73,8 @@
     const scale = (p.featureScale || 1) * 3.2;
     const mtn = p.mountains == null ? 0.5 : p.mountains;
     const h = new Float32Array(N);
+    const region = type.equal ? new Uint8Array(N) : null;
+    const riftW = Math.min(W, H) * 0.07;
     const edgeW = Math.max(1, type.edge * Math.min(W, H));
 
     for (let y = 0; y < H; y++) {
@@ -75,6 +101,19 @@
         }
         e += mass * 0.8;
 
+        // getrennte Kontinente: jede Zelle gehört zum nächsten Kern (mit gewellten Grenzen),
+        // entlang der Grenzen verläuft ein Meeresgraben
+        if (region) {
+          const qx = x + ou * Math.min(W, H) * 0.12, qy = y + ov * Math.min(W, H) * 0.12;
+          let d1 = Infinity, d2 = Infinity, k1 = 0;
+          for (let k = 0; k < blobs.length; k++) {
+            const dd = Math.hypot(qx - blobs[k].x, qy - blobs[k].y);
+            if (dd < d1) { d2 = d1; d1 = dd; k1 = k; } else if (dd < d2) d2 = dd;
+          }
+          region[y * W + x] = k1;
+          e -= (1 - FMM.smoothstep(0, riftW, (d2 - d1) / 2)) * 0.9;
+        }
+
         // Rand der Karte wird zu Meer
         if (edgeW > 1) {
           const de = Math.min(x, W - 1 - x, y, H - 1 - y) / edgeW;
@@ -83,8 +122,9 @@
 
         // Gebirgsketten
         const mask = FMM.smoothstep(-0.05, 0.45, FMM.fbm(nMask, u * 0.55 + 11, v * 0.55 - 4, 3, 2, 0.5));
-        const ridge = FMM.ridged(nRidge, wu * 1.1, wv * 1.1, 6);
-        e += ridge * mask * mtn * 0.55 * FMM.smoothstep(-0.1, 0.25, e);
+        // schmalere, kettenförmige Grate statt breiter Massive
+        const ridge = Math.pow(FMM.ridged(nRidge, wu * 1.5, wv * 1.5, 6), 1.6);
+        e += ridge * mask * mtn * 0.7 * FMM.smoothstep(-0.1, 0.25, e);
         e += FMM.fbm(nDetail, u * 6, v * 6, 3, 2, 0.5) * 0.025;
         h[y * W + x] = e;
       }
@@ -99,8 +139,22 @@
     for (let i = 0; i < N; i += step) sample.push(h[i]);
     sample.sort((a, b) => a - b);
     const landFrac = FMM.clamp(p.landFraction || 0.4, 0.05, 0.95);
-    const sea = sample[Math.floor((1 - landFrac) * (sample.length - 1))];
-    for (let i = 0; i < N; i++) h[i] -= sea;
+    if (region) {
+      // Meeresspiegel je Kontinentbereich, sodass jeder Kontinent gleich viel Land erhält
+      const k = blobs.length;
+      const per = Array.from({ length: k }, () => []);
+      for (let i = 0; i < N; i += step) per[region[i]].push(h[i]);
+      const target = (landFrac * N) / k / step;
+      const seaR = per.map((arr) => {
+        arr.sort((a, b) => a - b);
+        const land = Math.min(arr.length * 0.85, target);
+        return arr[Math.max(0, Math.floor(arr.length - land))];
+      });
+      for (let i = 0; i < N; i++) h[i] -= seaR[region[i]];
+    } else {
+      const sea = sample[Math.floor((1 - landFrac) * (sample.length - 1))];
+      for (let i = 0; i < N; i++) h[i] -= sea;
+    }
 
     // Küstendetails: verwirbeltes, feines Rauschen nur nahe dem Meeresspiegel
     // → zerklüftete Buchten, Landzungen und vorgelagerte Inselchen statt glatter Ränder
