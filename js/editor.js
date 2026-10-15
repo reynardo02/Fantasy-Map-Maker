@@ -300,6 +300,8 @@
         const isTerrain = TERRAIN_TOOLS.has(this.tool);
         this.app.history.newVersion(isTerrain ? 'terrain' : this.tool === 'biome' ? 'biome' : 'state');
         const i = this.cellIndex(m.x, m.y);
+        // veraltete Vektorlinien während des Strichs ausblenden
+        this.app.renderer.live = isTerrain ? 'terrain' : this.tool === 'state' ? 'state' : null;
         this.pointer = {
           kind: 'brush',
           terrain: isTerrain,
@@ -374,6 +376,7 @@
       if (!p) return;
       if (p.kind === 'pan' && p.click && this.tool === 'pan') this.app.select(null);
       if (p.kind === 'brush') {
+        this.app.renderer.live = null;
         this.flushDirty();
         if (p.terrain) this.app.afterTerrainEdit(p.wasWater);
         else if (this.tool === 'biome') this.app.afterBiomeEdit();

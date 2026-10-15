@@ -100,9 +100,26 @@
     sample.sort((a, b) => a - b);
     const landFrac = FMM.clamp(p.landFraction || 0.4, 0.05, 0.95);
     const sea = sample[Math.floor((1 - landFrac) * (sample.length - 1))];
+    for (let i = 0; i < N; i++) h[i] -= sea;
+
+    // Küstendetails: verwirbeltes, feines Rauschen nur nahe dem Meeresspiegel
+    // → zerklüftete Buchten, Landzungen und vorgelagerte Inselchen statt glatter Ränder
+    const nCoast = FMM.createNoise2D(rng);
+    const nCoastW = FMM.createNoise2D(rng);
+    const cScale = 9 / ((p.featureScale || 1) * Math.min(W, H) / 750);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        const near = Math.exp(-Math.abs(h[i]) / 0.05);
+        if (near < 0.02) continue;
+        const u = (x / H) * cScale, v = (y / H) * cScale;
+        const wu = u + 0.5 * nCoastW(u * 0.6, v * 0.6), wv = v + 0.5 * nCoastW(u * 0.6 + 17, v * 0.6 - 9);
+        h[i] += FMM.fbm(nCoast, wu, wv, 4, 2.1, 0.55) * 0.06 * near;
+      }
+    }
+
     let maxL = 1e-6, minO = -1e-6;
     for (let i = 0; i < N; i++) {
-      h[i] -= sea;
       if (h[i] > maxL) maxL = h[i];
       if (h[i] < minO) minO = h[i];
     }
@@ -482,8 +499,8 @@
   };
 
   FMM.STYLE_PRESETS = {
-    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true },
-    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true },
-    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true },
+    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true },
+    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true },
+    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true },
   };
 })();
