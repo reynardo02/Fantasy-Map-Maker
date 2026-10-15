@@ -3,39 +3,6 @@
   'use strict';
   const FMM = window.FMM;
 
-  // ---------- Biom-Farbtabelle (Temperatur × Feuchtigkeit) ----------
-  const T_ANCH = [0, 0.15, 0.3, 0.5, 0.7, 0.85, 1.0];
-  const BIOME = [
-    // trocken          mittel            feucht
-    [[232, 236, 238], [232, 237, 240], [228, 235, 240]], // Eis
-    [[170, 164, 140], [146, 148, 124], [124, 134, 112]], // Tundra
-    [[166, 158, 114], [104, 120, 82], [60, 86, 58]], // Taiga / Steppe
-    [[186, 172, 114], [120, 144, 80], [62, 102, 52]], // gemäßigt
-    [[208, 186, 128], [158, 158, 90], [66, 108, 48]], // warm
-    [[224, 198, 142], [178, 164, 94], [48, 98, 40]], // heiß
-    [[230, 204, 148], [188, 168, 98], [40, 90, 36]], // tropisch
-  ];
-  const LUT_N = 64;
-  const LUT = new Uint8Array(LUT_N * LUT_N * 3);
-  (function buildLut() {
-    for (let ti = 0; ti < LUT_N; ti++) {
-      const t = ti / (LUT_N - 1);
-      let a = 0;
-      while (a < T_ANCH.length - 2 && t > T_ANCH[a + 1]) a++;
-      const ft = FMM.clamp((t - T_ANCH[a]) / (T_ANCH[a + 1] - T_ANCH[a]), 0, 1);
-      for (let mi = 0; mi < LUT_N; mi++) {
-        const m = mi / (LUT_N - 1);
-        const b = m < 0.5 ? 0 : 1;
-        const fm = m < 0.5 ? m / 0.5 : (m - 0.5) / 0.5;
-        for (let c = 0; c < 3; c++) {
-          const v0 = FMM.lerp(BIOME[a][b][c], BIOME[a][b + 1][c], fm);
-          const v1 = FMM.lerp(BIOME[a + 1][b][c], BIOME[a + 1][b + 1][c], fm);
-          LUT[(ti * LUT_N + mi) * 3 + c] = Math.round(FMM.lerp(v0, v1, ft));
-        }
-      }
-    }
-  })();
-
   // Wasserfarben nach Tiefe
   const OCEAN_STOPS = [
     [0, [104, 170, 192]],
@@ -53,7 +20,7 @@
   }
 
   const STYLE = {
-    geo: { river: '#2c5d86', riverAlpha: 0.95, text: '#1d1a16', halo: 'rgba(255,255,255,0.75)', sea: '#d8ecf5', seaHalo: 'rgba(20,50,80,0.55)', city: '#1d1a16', cityFill: '#ffffff', border: [120, 30, 30] },
+    geo: { river: '#2f6fae', riverAlpha: 0.95, text: '#1d1a16', halo: 'rgba(255,255,255,0.75)', sea: '#d8ecf5', seaHalo: 'rgba(20,50,80,0.55)', city: '#1d1a16', cityFill: '#ffffff', border: [120, 30, 30] },
     political: { river: '#4a80aa', riverAlpha: 0.9, text: '#2a221c', halo: 'rgba(250,246,236,0.85)', sea: '#356283', seaHalo: 'rgba(235,245,250,0.7)', city: '#2a221c', cityFill: '#ffffff', border: [70, 52, 48] },
     antique: { river: '#4f6878', riverAlpha: 0.9, text: '#3b2a18', halo: 'rgba(236,222,186,0.8)', sea: '#5a4a32', seaHalo: 'rgba(236,222,186,0.6)', city: '#3b2a18', cityFill: '#efe1bd', border: [120, 50, 40] },
   };
@@ -83,6 +50,21 @@
           this.paper[y * map.width + x] = FMM.fbm(noise, x / 90, y / 90, 4, 2.2, 0.55);
         }
       }
+      // Variationsrauschen für Landschaftsformen: großräumig (Grenzen) und fein (Baumkronen, Dünen)
+      const seed = (map.settings && map.settings.seed) || 'welt';
+      const nv = FMM.createNoise2D(FMM.makeRng(seed + 'veg'));
+      const nf = FMM.createNoise2D(FMM.makeRng(seed + 'fein'));
+      this.veg = new Float32Array(N);
+      this.fine = new Float32Array(N);
+      for (let y = 0; y < map.height; y++) {
+        for (let x = 0; x < map.width; x++) {
+          const i = y * map.width + x;
+          this.veg[i] = FMM.fbm(nv, x / 40, y / 40, 4, 2, 0.5);
+          this.fine[i] = nf(x / 2.2, y / 2.2) * 0.65 + nf(x / 1.1 + 40, y / 1.1) * 0.35;
+        }
+      }
+      this.biome = new Uint8Array(N).fill(255);
+      this.biomeCount = null;
       this.riverCache = null;
     }
 
@@ -101,8 +83,12 @@
       const L = map.view.layers;
       const h = map.heights, moist = map.moisture, sm = map.stateMap;
       const lake = d.lake, cd = d.coastDist, bd = d.borderDist, latT = d.latT;
-      const paper = this.paper;
+      const paper = this.paper, veg = this.veg, fine = this.fine, biome = this.biome;
+      const rdist = d.riverDist;
       const px = this.img.data;
+      const BI = FMM.BIOME_ID;
+      const forest = FMM.BIOMES.map((b) => FMM.isForest(b.id));
+      const slopeK = 40 * (W / 1200);
 
       const maxId = map.states.reduce((m, s) => Math.max(m, s.id), 0);
       const sr = new Uint8Array(maxId + 1), sg = new Uint8Array(maxId + 1), sb = new Uint8Array(maxId + 1);
@@ -116,10 +102,10 @@
       const zLand = 11 * (W / 1200) * (map.view.relief || 1);
       const zSea = 3 * (W / 1200);
       const lx = -0.62, ly = -0.62, lz = 0.48;
-      const reliefAmt = L.relief ? (style === 'geo' ? 1 : style === 'political' ? 0.7 : 0.9) : 0;
+      const reliefAmt = L.relief ? (style === 'geo' ? 0.8 : style === 'political' ? 0.7 : 0.9) : 0;
       const border = STYLE[style].border;
       const sty = style === 'geo' ? 0 : style === 'political' ? 1 : 2;
-      const maxShade = sty === 0 ? 1.35 : sty === 1 ? 1.15 : 1.12;
+      const maxShade = sty === 0 ? 1.25 : sty === 1 ? 1.15 : 1.12;
 
       for (let y = y0; y < y1; y++) {
         const yu = y > 0 ? y - 1 : y, yd = y < H - 1 ? y + 1 : y;
@@ -170,22 +156,45 @@
             }
             shade = 1 + (shade - 1) * 0.5;
           } else if (isLake) {
-            if (sty === 0) { r = 72; g = 128; b = 160; }
+            if (sty === 0) { r = 56; g = 110; b = 158; }
             else if (sty === 1) { r = 150; g = 192; b = 214; }
             else { r = 180; g = 170; b = 140; }
           } else {
             const t = FMM.cellTemp(lt, hv);
             if (sty === 0) {
-              const ti = Math.max(0, Math.min(LUT_N - 1, (t * (LUT_N - 1)) | 0));
-              const mi = Math.max(0, Math.min(LUT_N - 1, (moist[i] * (LUT_N - 1)) | 0));
-              const k = (ti * LUT_N + mi) * 3;
-              r = LUT[k]; g = LUT[k + 1]; b = LUT[k + 2];
-              // Fels im Hochgebirge
-              const rock = FMM.smoothstep(0.42, 0.8, hv);
-              if (rock > 0) { r += (132 - r) * rock; g += (120 - g) * rock; b += (104 - b) * rock; }
-              // Schnee
-              const snow = FMM.smoothstep(0.11, 0.03, t);
-              if (snow > 0) { r += (246 - r) * snow; g += (248 - g) * snow; b += (250 - b) * snow; }
+              // Landschaftsform bestimmen
+              const gx = Math.max(0, h[xr]) - Math.max(0, h[xl]);
+              const gy = Math.max(0, h[id]) - Math.max(0, h[iu]);
+              const slope = Math.sqrt(gx * gx + gy * gy) * slopeK;
+              const v = veg[i], fn = fine[i];
+              const bi = FMM.classifyBiome(t, moist[i], hv, slope, rdist[i], v);
+              biome[i] = bi;
+              const c = FMM.BIOMES[bi].color;
+              r = c[0]; g = c[1]; b = c[2];
+              if (forest[bi]) {
+                // Baumkronen-Struktur
+                const k = 0.84 + fn * 0.2;
+                r *= k; g *= k; b *= k;
+              } else if (bi === BI.wueste) {
+                // Dünen
+                const k = 0.95 + 0.06 * Math.sin(x * 0.55 + y * 0.2 + v * 18);
+                r *= k; g *= k; b *= k;
+              } else if (bi === BI.sumpf) {
+                // Wasserlachen
+                if (fn > 0.3) { r = (r + 70) / 2; g = (g + 108) / 2; b = (b + 124) / 2; }
+              } else if (bi === BI.savanne) {
+                // vereinzelte Baumgruppen
+                if (fn > 0.5) { r *= 0.62; g *= 0.7; b *= 0.55; }
+              } else if (bi === BI.fels) {
+                const k = 0.94 + fn * 0.08;
+                r *= k; g *= k; b *= k;
+              } else if (bi !== BI.gletscher) {
+                const k = 0.95 + v * 0.07 + fn * 0.03;
+                r *= k; g *= k; b *= k;
+              }
+              // Schneekappen auf Gipfeln
+              const snow = FMM.smoothstep(0.12, 0.05, t) * (bi === BI.fels ? 1 : 0.6);
+              if (snow > 0 && bi !== BI.gletscher) { r += (244 - r) * snow; g += (247 - g) * snow; b += (250 - b) * snow; }
               // Strand
               if (hv < 0.012 && cd[i] <= 1 && t > 0.3) { r = (r + 214) / 2; g = (g + 200) / 2; b = (b + 160) / 2; }
             } else if (sty === 1) {
@@ -240,6 +249,7 @@
         }
       }
       this.bctx.putImageData(this.img, 0, 0, x0, y0, x1 - x0, y1 - y0);
+      if (!rect) this.biomeCount = null;
     }
 
     // ---------- Flüsse als Path2D nach Breitenstufen ----------
@@ -293,7 +303,7 @@
         ctx.lineJoin = 'round';
         const rc = this.riverCache;
         for (let k = 0; k < rc.buckets.length; k++) {
-          ctx.lineWidth = rc.widths[k];
+          ctx.lineWidth = rc.widths[k] * (map.view.style === 'geo' ? 1.35 : 1);
           ctx.stroke(rc.buckets[k]);
         }
         ctx.globalAlpha = 1;
@@ -346,6 +356,7 @@
         for (const c of order) this.drawCity(ctx, map, c, unit, st, opts, view);
       }
 
+      if (L.legend) this.drawLegend(ctx, map, unit, st);
       if (L.compass) this.drawCompass(ctx, W - 62 * unit, 66 * unit, 40 * unit, map.view.style);
       if (L.scale) this.drawScale(ctx, map, unit, st);
       this.drawFrame(ctx, map, unit);
@@ -492,6 +503,57 @@
       ctx.restore();
       this.drawText(ctx, '0', x, y - 7 * unit, { font: `${10 * unit}px ${FONT_TEXT}`, color: st.text, halo: st.halo, haloWidth: 3 * unit });
       this.drawText(ctx, nice.toLocaleString('de-DE') + ' km', x + len, y - 7 * unit, { font: `${10 * unit}px ${FONT_TEXT}`, color: st.text, halo: st.halo, haloWidth: 3 * unit });
+    }
+
+    // Legende der Landschaftsformen (nur die auf der Karte vorkommenden)
+    drawLegend(ctx, map, unit, st) {
+      if (map.view.style !== 'geo') return;
+      if (!this.biomeCount) this.countBiomes(map);
+      const total = this.biomeCount.reduce((a, b) => a + b, 0) || 1;
+      const items = FMM.BIOMES.filter((b) => this.biomeCount[b.id] / total > 0.004)
+        .map((b) => ({ name: b.name, color: `rgb(${b.color.join(',')})` }));
+      items.push({ name: 'Fluss', line: true }, { name: 'See / Meer', color: 'rgb(56,110,158)' });
+      const fs = 10 * unit, row = 14 * unit, pad = 8 * unit, sw = 14 * unit;
+      ctx.save();
+      ctx.font = `${fs}px ${FONT_TEXT}`;
+      const tw = Math.max(...items.map((it) => ctx.measureText(it.name).width), ctx.measureText('Legende').width);
+      const bw = pad * 2 + sw + 6 * unit + tw;
+      const bh = pad * 2 + row * (items.length + 1);
+      const x = map.width - bw - 14 * unit, y = map.height - bh - 14 * unit;
+      ctx.fillStyle = 'rgba(248,245,238,0.88)';
+      ctx.strokeStyle = 'rgba(40,40,40,0.6)';
+      ctx.lineWidth = 0.8 * unit;
+      ctx.fillRect(x, y, bw, bh);
+      ctx.strokeRect(x, y, bw, bh);
+      ctx.fillStyle = st.text;
+      ctx.textBaseline = 'middle';
+      ctx.font = `700 ${fs}px ${FONT_TEXT}`;
+      ctx.fillText('Legende', x + pad, y + pad + row / 2);
+      ctx.font = `${fs}px ${FONT_TEXT}`;
+      items.forEach((it, k) => {
+        const yy = y + pad + row * (k + 1);
+        if (it.line) {
+          ctx.strokeStyle = st.river;
+          ctx.lineWidth = 2 * unit;
+          ctx.beginPath(); ctx.moveTo(x + pad, yy + row / 2); ctx.lineTo(x + pad + sw, yy + row / 2); ctx.stroke();
+        } else {
+          ctx.fillStyle = it.color;
+          ctx.fillRect(x + pad, yy + 2 * unit, sw, row - 4 * unit);
+          ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+          ctx.lineWidth = 0.6 * unit;
+          ctx.strokeRect(x + pad, yy + 2 * unit, sw, row - 4 * unit);
+        }
+        ctx.fillStyle = st.text;
+        ctx.fillText(it.name, x + pad + sw + 6 * unit, yy + row / 2);
+      });
+      ctx.restore();
+    }
+
+    countBiomes(map) {
+      const cnt = new Array(FMM.BIOMES.length).fill(0);
+      const bm = this.biome, h = map.heights;
+      for (let i = 0; i < bm.length; i++) if (h[i] >= 0 && bm[i] < cnt.length) cnt[bm[i]]++;
+      this.biomeCount = cnt;
     }
 
     drawFrame(ctx, map, unit) {

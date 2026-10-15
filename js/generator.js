@@ -189,7 +189,9 @@
         const n = FMM.fbm(noise, (x / H) * 2.4, (y / H) * 2.4, 5, 2, 0.5) * 0.5 + 0.5;
         const cd = map.heights[i] < 0 ? 0 : coastDist[i];
         const coast = Math.exp(-cd / reach);
-        m[i] = FMM.clamp(n * 0.62 + coast * 0.42 - 0.05, 0, 1);
+        // Kontrast verstärken → echte Trockengebiete (Wüsten, Steppen) und feuchte Regionen
+        const nc = FMM.clamp(0.5 + (n - 0.5) * 1.8, 0, 1);
+        m[i] = FMM.clamp(nc * 0.66 + coast * 0.38 - 0.06, 0, 1);
       }
     }
     return m;
@@ -479,7 +481,7 @@
   };
 
   FMM.STYLE_PRESETS = {
-    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true },
+    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true },
     political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true },
     antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true },
   };

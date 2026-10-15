@@ -376,7 +376,11 @@
       let txt;
       if (h < 0) txt = 'Meer · Tiefe ' + Math.round(-h * 8000).toLocaleString('de-DE') + ' m';
       else if (this.d.lake[i]) txt = 'See';
-      else txt = 'Höhe ' + Math.round(h * 6000).toLocaleString('de-DE') + ' m';
+      else {
+        txt = 'Höhe ' + Math.round(h * 6000).toLocaleString('de-DE') + ' m';
+        const b = FMM.BIOMES[this.renderer.biome[i]];
+        if (b && this.map.view.style === 'geo') txt += ' · ' + b.name;
+      }
       const st = this.stateAt(x, y);
       if (st) txt += ' · ' + st.form + ' ' + st.name;
       $('coords').textContent = txt;

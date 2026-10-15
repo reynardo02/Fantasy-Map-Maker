@@ -24,16 +24,16 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - Landformen: mehrere Kontinente, Superkontinent, große Insel, Archipel, Küstenregion oder freies Rauschen
 - Einstellbar: Landanteil, Gebirge, Strukturgröße, Flussdichte, Klima, Anzahl Staaten und Städte
 - **Gleicher Seed = gleiche Welt**
-- Klima und Biome (Eis, Tundra, Taiga, Wälder, Steppe, Wüste, Regenwald), Fels und Schnee im Hochgebirge
+- Klima und Landschaftsformen: Gletscher, Hochgebirge, Tundra, Nadelwald, Laub- und Mischwald, Regenwald, Wiesen, Steppe, Savanne, Wüste, Sumpf. Entlang von Flüssen entstehen grüne Täler und Auwälder.
 - **Flüsse und Seen** aus einer echten Abflusssimulation (Senkenfüllung und Abflussakkumulation)
 - Staaten breiten sich von ihren Hauptstädten über das Gelände aus. Gebirge und Flüsse werden dabei zu natürlichen Grenzen.
 - Namensgenerator mit sechs Sprachstilen (nordisch, elbisch, romanisch, germanisch, orientalisch, rau) für Staaten, Städte und Meere
 
 ### Darstellungsstile
-- **Geografisch:** Satelliten-ähnliches Relief mit Biomfarben und Meerestiefen
+- **Geografisch:** Landschaftsformen mit eigener Textur (Baumkronen in Wäldern, Dünen in Wüsten, Wasserlachen in Sümpfen), dazu Relief, Flüsse, Meerestiefen und eine Legende
 - **Politisch:** Staatsfarben, Grenzen und Staatsnamen, die sich der Form des Staats anpassen
 - **Antik:** Pergament-Look mit Gradnetz, Rahmen und Vignette
-- Ebenen einzeln schaltbar: Relief, Flüsse, Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab
+- Ebenen einzeln schaltbar: Relief, Flüsse, Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
 
 ### Bearbeiten
 | Werkzeug | Taste | Funktion |
@@ -63,6 +63,7 @@ index.html        Oberfläche
 css/style.css     Gestaltung
 js/core.js        Zufall (Seed), Simplex-Rauschen, Heap, Hilfsfunktionen
 js/names.js       Namensgenerator
+js/biomes.js      Landschaftsformen (Einteilung und Farben)
 js/derive.js      Klima, Flüsse und Seen, Küstenabstand, Staatsstatistiken
 js/generator.js   Weltgenerierung (Gelände, Feuchtigkeit, Staaten, Städte, Meere)
 js/render.js      Darstellung (Rasterbild und Vektorebene)

@@ -146,6 +146,27 @@
       if (path.length >= 3) rivers.push(path);
     }
 
+    // Abstand zum nächsten Fluss/See (für Auwälder und grüne Flusstäler), max. 8 Zellen
+    const riverDist = new Uint8Array(N).fill(255);
+    const q = new Int32Array(N);
+    let qh = 0, qt = 0;
+    for (let i = 0; i < N; i++) if (isRiver[i] || lake[i]) { riverDist[i] = 0; q[qt++] = i; }
+    while (qh < qt) {
+      const c = q[qh++];
+      const dc = riverDist[c];
+      if (dc >= 8) continue;
+      const cx = c % W, cy = (c / W) | 0;
+      for (let k = 0; k < 4; k++) {
+        const nx = cx + FMM.N4[k][0], ny = cy + FMM.N4[k][1];
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const n = ny * W + nx;
+        if (riverDist[n] !== 255) continue;
+        riverDist[n] = dc + 1;
+        q[qt++] = n;
+      }
+    }
+
+    d.riverDist = riverDist;
     d.filled = filled;
     d.down = down;
     d.flux = flux;
