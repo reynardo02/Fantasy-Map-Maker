@@ -28,6 +28,10 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Flüsse und Seen** aus einer echten Abflusssimulation (Senkenfüllung und Abflussakkumulation)
 - **Erosion:** Simulierte Regentropfen formen verzweigte Täler, scharfe Grate und Schwemmebenen. Die Stärke ist einstellbar, und über „Erosion anwenden“ lässt sie sich auch auf bestehende Karten anwenden.
 - **Wind und Regenschatten:** Feuchte Luft zieht vom Meer übers Land und regnet sich an Gebirgen ab, dahinter wird es trocken. Die Windrichtung folgt automatisch den Klimazonen (Westwinde, Passat aus Osten) oder wird frei gewählt.
+- **Kontinentalplatten:** Wo Platten zusammenstoßen, falten sich Gebirgsketten auf, auf See entstehen Inselbögen. Wo sie auseinanderdriften, entstehen Grabenbrüche.
+- **Küstenvielfalt:** Sandstrände an flachen Küsten, Klippen an Steilküsten, Watt im gemäßigten Flachwasser, türkisfarbene Lagunen und Riffe in den Tropen, Fjorde an kalten Gebirgsküsten
+- **Flussmündungen:** Große Flüsse weiten sich trichterförmig, an flachen Küsten entstehen Deltaarme.
+- **Weiche Übergänge** zwischen den Landschaftsformen, mit einzelnen Bäumen vor dem Waldrand
 - **Gebirge als Ketten** mit Graten; Schnee nur oberhalb einer Schneegrenze, die vom Breitengrad abhängt, vor allem auf Graten. Baumgrenze mit Almwiesen darüber.
 - **Flüsse mit Mäandern** im Flachland und stufenloser Breite von der Quelle bis zur Mündung
 - **Natürliche Küsten** mit Buchten, Landzungen und vorgelagerten Inselchen
@@ -40,7 +44,7 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Politisch:** Staatsfarben, Grenzen und Staatsnamen, die sich der Form des Staats anpassen
 - **Antik:** Pergament-Look mit Gradnetz, Rahmen und Vignette
 - Küsten, Seeufer und Staatsgrenzen sind geglättete Vektorlinien; das Kartenbild wird in doppelter Auflösung berechnet
-- Ebenen einzeln schaltbar: Relief, Flüsse, Straßen, Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
+- Ebenen einzeln schaltbar: Relief, Flüsse, Straßen, Symbole (gezeichnete Berge, Hügel und Bäume, im antiken Stil standardmäßig an), Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
 
 ### Bearbeiten
 | Werkzeug | Taste | Funktion |
@@ -78,6 +82,7 @@ js/erosion.js     Hydraulische Erosion
 js/climate.js     Niederschlag aus Wind und Regenschatten
 js/derive.js      Klima, Flüsse und Seen, Küstenabstand, Staatsstatistiken
 js/generator.js   Weltgenerierung (Gelände, Feuchtigkeit, Staaten, Städte, Meere)
+js/symbols.js     Kartensymbole (Berge, Hügel, Bäume)
 js/render.js      Darstellung (Rasterbild und Vektorebene)
 js/storage.js     Speichern und Laden (Datei und IndexedDB)
 js/editor.js      Werkzeuge, Pinsel, Zoom, Rückgängig

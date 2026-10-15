@@ -70,6 +70,16 @@
     // Küstenregion: Land auf einer Seite
     const coastSide = rng.int(0, 3);
 
+    // Kontinentalplatten: wo sie zusammenstoßen, falten sich Gebirge auf (bzw. Inselbögen auf See),
+    // wo sie auseinanderdriften, entstehen Grabenbrüche
+    const plates = [];
+    const plateCount = Math.max(5, Math.round(rng.range(7, 11) * Math.sqrt((W * H) / (1200 * 750))));
+    for (let k = 0; k < plateCount; k++) {
+      const a = rng() * Math.PI * 2, sp = rng.range(0.35, 1);
+      plates.push({ x: rng() * W, y: rng() * H, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp });
+    }
+    const plateW = Math.min(W, H) * 0.075;
+
     const scale = (p.featureScale || 1) * 3.2;
     const mtn = p.mountains == null ? 0.5 : p.mountains;
     const h = new Float32Array(N);
@@ -120,11 +130,27 @@
           e -= (1 - FMM.smoothstep(0, 1, de)) * 0.7;
         }
 
-        // Gebirgsketten
-        const mask = FMM.smoothstep(-0.05, 0.45, FMM.fbm(nMask, u * 0.55 + 11, v * 0.55 - 4, 3, 2, 0.5));
+        // Gebirgsketten entlang konvergenter Plattengrenzen (+ etwas Hügelland aus Rauschen)
+        const px = x + ou * Math.min(W, H) * 0.15, py = y + ov * Math.min(W, H) * 0.15;
+        let d1 = Infinity, d2 = Infinity, p1 = 0, p2 = 0;
+        for (let k = 0; k < plates.length; k++) {
+          const dd = Math.hypot(px - plates[k].x, py - plates[k].y);
+          if (dd < d1) { d2 = d1; p2 = p1; d1 = dd; p1 = k; } else if (dd < d2) { d2 = dd; p2 = k; }
+        }
+        const A = plates[p1], B = plates[p2];
+        let nx = B.x - A.x, ny = B.y - A.y;
+        const nl = Math.hypot(nx, ny) || 1;
+        nx /= nl; ny /= nl;
+        const conv = (A.vx - B.vx) * nx + (A.vy - B.vy) * ny; // > 0: Platten bewegen sich aufeinander zu
+        const bdist = (d2 - d1) / 2;
+        const uplift = Math.max(0, conv) * (1 - FMM.smoothstep(0, plateW, bdist));
+        const rift = Math.max(0, -conv) * (1 - FMM.smoothstep(0, plateW * 0.45, bdist));
+        const hills = FMM.smoothstep(0.1, 0.55, FMM.fbm(nMask, u * 0.55 + 11, v * 0.55 - 4, 3, 2, 0.5)) * 0.3;
+        const mask = Math.max(FMM.smoothstep(0.05, 0.7, uplift), hills);
+        e += uplift * 0.1 * mtn - rift * 0.1;
         // schmalere, kettenförmige Grate statt breiter Massive
         const ridge = Math.pow(FMM.ridged(nRidge, wu * 1.5, wv * 1.5, 6), 1.6);
-        e += ridge * mask * mtn * 0.7 * FMM.smoothstep(-0.1, 0.25, e);
+        e += ridge * mask * mtn * 0.85 * FMM.smoothstep(-0.15, 0.25, e);
         e += FMM.fbm(nDetail, u * 6, v * 6, 3, 2, 0.5) * 0.025;
         h[y * W + x] = e;
       }
@@ -210,6 +236,41 @@
       for (let x = 0; x < W; x++) {
         const i = y * W + x;
         h[i] = (tmp[y > 0 ? i - W : i] + 2 * tmp[i] + tmp[y < H - 1 ? i + W : i]) / 4;
+      }
+    }
+  }
+
+  // Fjorde: an kalten Gebirgsküsten werden die unteren Flusstäler unter den Meeresspiegel abgesenkt
+  // (wie von Gletschern ausgeschürfte Trogtäler)
+  function carveFjords(map, d) {
+    const W = map.width, H = map.height, h = map.heights;
+    for (const path of d.rivers) {
+      const n = path.length;
+      const mouth = path[n - 1];
+      if (h[mouth] >= 0) continue; // Fluss muss ins Meer münden
+      if (d.latT[(mouth / W) | 0] > 0.32) continue; // nur in kalten Breiten
+      const L = Math.min(n - 1, 45);
+      let maxH = 0;
+      for (let k = 1; k <= L; k++) maxH = Math.max(maxH, h[path[n - 1 - k]]);
+      if (maxH < 0.36) continue; // nur an gebirgigen Küsten
+      for (let k = 1; k <= L; k++) {
+        const c = path[n - 1 - k];
+        const f = 1 - k / L;
+        const depth = -0.005 - 0.07 * f;
+        const rad = 1.1 + 2.2 * f;
+        // leicht gewunden: Mittellinie seitlich versetzen
+        const wob = Math.sin(k * 0.45 + mouth) * 1.2;
+        const cx = (c % W) + Math.round(wob * (k % 2 ? 1 : 0)), cy = ((c / W) | 0) + Math.round(wob * (k % 2 ? 0 : 1));
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const dist = Math.hypot(dx, dy);
+            if (dist > rad) continue;
+            const x = cx + dx, y = cy + dy;
+            if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
+            const j = y * W + x;
+            h[j] = Math.min(h[j], depth * (1 - (dist / (rad + 0.5)) * 0.6));
+          }
+        }
       }
     }
   }
@@ -518,6 +579,7 @@
     map.biomeMap = new Uint8Array(map.width * map.height).fill(255);
     FMM.Derive.hydrology(map, d0);
     reduceLakes(map, d0, rng);
+    carveFjords(map, d0);
     const d = FMM.Derive.all(map);
     const names = new FMM.NameGen(rng);
     generatePolitics(map, d, rng, p, names);
@@ -540,8 +602,8 @@
   };
 
   FMM.STYLE_PRESETS = {
-    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true },
-    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true },
-    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true },
+    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true, symbols: false },
+    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true, symbols: false },
+    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true, symbols: true },
   };
 })();
