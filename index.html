@@ -131,6 +131,12 @@
         <label class="row">Flussdichte
           <input id="riverDensity" type="range" min="0.3" max="3" step="0.1" value="1">
         </label>
+        <label class="row">Wind
+          <select id="windSelect" title="Hauptwindrichtung: bestimmt, wo es regnet und wo Regenschatten entstehen"></select>
+        </label>
+        <div class="btn-row">
+          <button id="btnErode" title="Erosion auf die aktuelle Karte anwenden: formt Täler, Grate und Schwemmebenen">⛰️ Erosion anwenden</button>
+        </div>
         <label class="row">km pro Pixel
           <input id="kmPerPixel" type="number" min="0.1" max="100" step="0.1" value="4">
         </label>
@@ -153,6 +159,8 @@
         <label>Strukturgröße <output>100 %</output><input name="featureScale" type="range" min="0.5" max="2" step="0.05" value="1"></label>
         <label>Flussdichte <output>100 %</output><input name="riverDensity" type="range" min="0.3" max="3" step="0.1" value="1"></label>
         <label>Klima <select name="climate" id="newClimate"></select></label>
+        <label>Erosion <output>60 %</output><input name="erosion" type="range" min="0" max="1" step="0.05" value="0.6"></label>
+        <label>Wind <select name="wind" id="newWind"></select></label>
         <label>Kultur der Namen <select name="culture" id="cultureSelect"></select></label>
         <label>Anzahl Staaten <input name="stateCount" type="number" min="1" max="60" value="10"></label>
         <label>Anzahl Städte <input name="cityCount" type="number" min="0" max="300" value="40"></label>
@@ -200,6 +208,8 @@
   <script src="js/names.js"></script>
   <script src="js/biomes.js"></script>
   <script src="js/derive.js"></script>
+  <script src="js/erosion.js"></script>
+  <script src="js/climate.js"></script>
   <script src="js/generator.js"></script>
   <script src="js/contours.js"></script>
   <script src="js/roads.js"></script>

@@ -480,6 +480,8 @@
       $('sizeSelect').value = 'mittel';
       fill($('landTypeSelect'), FMM.LAND_TYPES, 'label');
       fill($('newClimate'), FMM.CLIMATES, 'label');
+      fill($('newWind'), FMM.WINDS);
+      fill($('windSelect'), FMM.WINDS);
       fill($('climateSelect'), FMM.CLIMATES, 'label');
       const cultures = { gemischt: 'Gemischt (nach Klima)' };
       for (const [k, v] of Object.entries(FMM.CULTURES)) cultures[k] = v.label;
@@ -547,6 +549,8 @@
           mountains: +f.get('mountains'),
           featureScale: +f.get('featureScale'),
           riverDensity: +f.get('riverDensity'),
+          erosion: +f.get('erosion'),
+          wind: f.get('wind'),
           climate: f.get('climate'),
           culture: f.get('culture'),
           stateCount: +f.get('stateCount'),
@@ -619,6 +623,31 @@
         this.editor.requestDraw();
         this.changed();
       });
+      // Wind ändern → Niederschlag (Regenschatten) neu berechnen
+      $('windSelect').addEventListener('change', (e) => {
+        this.busy(true, 'Berechne Klima …');
+        setTimeout(() => {
+          this.history.push();
+          this.history.newVersion('terrain');
+          this.map.settings.wind = e.target.value;
+          this.map.moisture = FMM.computeMoisture(this.map);
+          this.afterTerrainEdit(null);
+          this.busy(false);
+          this.toast('Niederschlag für ' + FMM.WINDS[e.target.value] + ' neu berechnet');
+        }, 30);
+      });
+      $('btnErode').addEventListener('click', () => {
+        this.busy(true, 'Erosion läuft …');
+        setTimeout(() => {
+          this.history.push();
+          this.history.newVersion('terrain');
+          const wasWater = this.editor.waterMask();
+          FMM.erode(this.map.heights, this.map.width, this.map.height, 0.4, FMM.makeRng(Math.random()));
+          this.afterTerrainEdit(wasWater);
+          this.busy(false);
+          this.toast('Erosion angewendet – mehrfach klicken verstärkt den Effekt');
+        }, 30);
+      });
       $('kmPerPixel').addEventListener('change', (e) => {
         const v = +e.target.value;
         if (!(v > 0)) return;
@@ -640,6 +669,7 @@
       $('climateSelect').value = map.settings.climate || 'gemaessigt';
       $('riverDensity').value = map.settings.riverDensity || 1;
       $('kmPerPixel').value = map.settings.kmPerPixel || 4;
+      $('windSelect').value = map.settings.wind || 'auto';
       this.renderStateList();
       this.renderSelection();
       this.renderMapInfo();

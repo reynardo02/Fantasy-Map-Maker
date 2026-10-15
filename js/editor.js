@@ -41,13 +41,14 @@
     snapshot() {
       const app = this.app, map = app.map;
       // unveränderliche Kopien wiederverwenden, solange sich nichts geändert hat
-      if (!this.cache.h || this.cache.h.v !== app.terrainVersion) this.cache.h = { v: app.terrainVersion, a: map.heights.slice() };
+      if (!this.cache.h || this.cache.h.v !== app.terrainVersion) this.cache.h = { v: app.terrainVersion, a: map.heights.slice(), m: map.moisture.slice() };
       if (!this.cache.s || this.cache.s.v !== app.stateVersion) this.cache.s = { v: app.stateVersion, a: map.stateMap.slice() };
       if (!this.cache.b || this.cache.b.v !== app.biomeVersion) this.cache.b = { v: app.biomeVersion, a: map.biomeMap.slice() };
       return {
         tv: app.terrainVersion,
         sv: app.stateVersion,
         heights: this.cache.h.a,
+        moisture: this.cache.h.m,
         stateMap: this.cache.s.a,
         bv: app.biomeVersion,
         biomeMap: this.cache.b.a,
@@ -68,7 +69,12 @@
     restore(snap) {
       const app = this.app, map = app.map;
       const terrainChanged = snap.tv !== app.terrainVersion;
-      if (terrainChanged) { map.heights = snap.heights.slice(); app.terrainVersion = snap.tv; this.cache.h = { v: snap.tv, a: snap.heights }; }
+      if (terrainChanged) {
+        map.heights = snap.heights.slice();
+        map.moisture = snap.moisture.slice();
+        app.terrainVersion = snap.tv;
+        this.cache.h = { v: snap.tv, a: snap.heights, m: snap.moisture };
+      }
       if (snap.sv !== app.stateVersion) { map.stateMap = snap.stateMap.slice(); app.stateVersion = snap.sv; this.cache.s = { v: snap.sv, a: snap.stateMap }; }
       if (snap.bv !== app.biomeVersion) { map.biomeMap = snap.biomeMap.slice(); app.biomeVersion = snap.bv; this.cache.b = { v: snap.bv, a: snap.biomeMap }; }
       const o = JSON.parse(snap.json);

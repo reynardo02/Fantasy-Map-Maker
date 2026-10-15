@@ -26,6 +26,8 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Gleicher Seed = gleiche Welt**
 - Klima und Landschaftsformen: Gletscher, Hochgebirge, Tundra, Nadelwald, Laub- und Mischwald, Regenwald, Wiesen, Steppe, Savanne, Wüste, Sumpf. Entlang von Flüssen entstehen grüne Täler und Auwälder.
 - **Flüsse und Seen** aus einer echten Abflusssimulation (Senkenfüllung und Abflussakkumulation)
+- **Erosion:** Simulierte Regentropfen formen verzweigte Täler, scharfe Grate und Schwemmebenen. Die Stärke ist einstellbar, und über „Erosion anwenden“ lässt sie sich auch auf bestehende Karten anwenden.
+- **Wind und Regenschatten:** Feuchte Luft zieht vom Meer übers Land und regnet sich an Gebirgen ab, dahinter wird es trocken. Die Windrichtung folgt automatisch den Klimazonen (Westwinde, Passat aus Osten) oder wird frei gewählt.
 - **Gebirge als Ketten** mit Graten; Schnee nur oberhalb einer Schneegrenze, die vom Breitengrad abhängt, vor allem auf Graten. Baumgrenze mit Almwiesen darüber.
 - **Flüsse mit Mäandern** im Flachland und stufenloser Breite von der Quelle bis zur Mündung
 - **Natürliche Küsten** mit Buchten, Landzungen und vorgelagerten Inselchen
@@ -72,6 +74,8 @@ js/names.js       Namensgenerator
 js/biomes.js      Landschaftsformen (Einteilung und Farben)
 js/contours.js    Geglättete Konturen (Küsten, Seeufer, Grenzen)
 js/roads.js       Straßennetz (A*-Wegsuche)
+js/erosion.js     Hydraulische Erosion
+js/climate.js     Niederschlag aus Wind und Regenschatten
 js/derive.js      Klima, Flüsse und Seen, Küstenabstand, Staatsstatistiken
 js/generator.js   Weltgenerierung (Gelände, Feuchtigkeit, Staaten, Städte, Meere)
 js/render.js      Darstellung (Rasterbild und Vektorebene)
