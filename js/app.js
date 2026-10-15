@@ -89,6 +89,7 @@
       map.view.layers = Object.assign({}, FMM.STYLE_PRESETS[map.view.style] || FMM.STYLE_PRESETS.geo, map.view.layers);
       this.d = FMM.Derive.all(map);
       this.renderer.setMap(map);
+      this.citySig = this.citySignature();
       this.renderer.renderBase(map, this.d);
       this.history.reset();
       this.updateUndoButtons();
@@ -185,6 +186,7 @@
 
     afterStateEdit() {
       FMM.Derive.politics(this.map, this.d);
+      this.renderer.invalidateBorders();
       this.renderer.renderBase(this.map, this.d);
       this.editor.requestDraw();
       this.changed();
@@ -197,6 +199,8 @@
         FMM.Derive.hydrology(map, d);
         this.renderer.invalidateRivers();
       }
+      this.renderer.invalidateBorders();
+      this.renderer.invalidateRoads();
       d.latT = FMM.Derive.latitudeTemps(map);
       FMM.Derive.politics(map, d);
       this.renderer.renderBase(map, d);
@@ -207,12 +211,23 @@
     },
 
     changed(immediate) {
+      // Städte verändert (neu, verschoben, gelöscht, Typ)? → Straßennetz neu berechnen
+      const sig = this.citySignature();
+      if (sig !== this.citySig) {
+        this.renderer.invalidateRoads();
+        this.citySig = sig;
+        this.editor.requestDraw();
+      }
       $('status').textContent = 'Ungespeicherte Änderungen …';
       this.savePending = true;
       clearTimeout(this.saveTimer);
       this.saveTimer = setTimeout(() => this.autosave(), immediate ? 200 : 1500);
       clearTimeout(this.uiTimer);
       this.uiTimer = setTimeout(() => { this.renderStateList(); this.renderMapInfo(); }, 150);
+    },
+
+    citySignature() {
+      return this.map ? this.map.cities.map((c) => c.id + c.type + Math.round(c.x) + ',' + Math.round(c.y)).join('|') : '';
     },
 
     async autosave() {

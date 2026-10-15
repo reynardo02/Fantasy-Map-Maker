@@ -38,9 +38,11 @@
 
     setMap(map) {
       this.map = map;
-      this.base.width = map.width;
-      this.base.height = map.height;
-      this.img = this.bctx.createImageData(map.width, map.height);
+      // doppelte Auflösung für glatte Küsten und Übergänge (bei sehr großen Karten einfach)
+      this.S = map.width * map.height <= 2000000 ? 2 : 1;
+      this.base.width = map.width * this.S;
+      this.base.height = map.height * this.S;
+      this.img = this.bctx.createImageData(this.base.width, this.base.height);
       // Pergamenttextur (feste Saat, damit sie beim Bearbeiten stabil bleibt)
       const N = map.width * map.height;
       this.paper = new Float32Array(N);
@@ -66,18 +68,26 @@
       this.biome = new Uint8Array(N).fill(255);
       this.biomeCount = null;
       this.riverCache = null;
+      this.coastCache = null;
+      this.borderCache = null;
+      this.roadCache = null;
+      this.live = null;
     }
 
-    invalidateRivers() { this.riverCache = null; }
+    // Gelände geändert: Flüsse, Küsten, Grenzen und Straßen neu aufbauen
+    invalidateRivers() { this.riverCache = null; this.coastCache = null; this.borderCache = null; this.roadCache = null; }
+    invalidateBorders() { this.borderCache = null; }
+    invalidateRoads() { this.roadCache = null; }
 
-    // ---------- Rasterbild ----------
+    // ---------- Rasterbild (Supersampling: S×S Pixel pro Kartenzelle) ----------
     renderBase(map, d, rect) {
-      const W = map.width, H = map.height;
-      const x0 = rect ? Math.max(0, rect.x0 | 0) : 0;
-      const y0 = rect ? Math.max(0, rect.y0 | 0) : 0;
-      const x1 = rect ? Math.min(W, Math.ceil(rect.x1)) : W;
-      const y1 = rect ? Math.min(H, Math.ceil(rect.y1)) : H;
-      if (x1 <= x0 || y1 <= y0) return;
+      const W = map.width, H = map.height, S = this.S;
+      const cx0 = rect ? Math.max(0, rect.x0 | 0) : 0;
+      const cy0 = rect ? Math.max(0, rect.y0 | 0) : 0;
+      const cx1 = rect ? Math.min(W, Math.ceil(rect.x1)) : W;
+      const cy1 = rect ? Math.min(H, Math.ceil(rect.y1)) : H;
+      if (cx1 <= cx0 || cy1 <= cy0) return;
+      const PW = W * S;
 
       const style = map.view.style;
       const L = map.view.layers;
@@ -103,34 +113,54 @@
       const zSea = 3 * (W / 1200);
       const lx = -0.62, ly = -0.62, lz = 0.48;
       const reliefAmt = L.relief ? (style === 'geo' ? 0.8 : style === 'political' ? 0.7 : 0.9) : 0;
-      const border = STYLE[style].border;
       const sty = style === 'geo' ? 0 : style === 'political' ? 1 : 2;
       const maxShade = sty === 0 ? 1.25 : sty === 1 ? 1.15 : 1.12;
+      const Wm = W - 1, Hm = H - 1;
 
-      for (let y = y0; y < y1; y++) {
-        const yu = y > 0 ? y - 1 : y, yd = y < H - 1 ? y + 1 : y;
-        const lt = latT[y];
-        for (let x = x0; x < x1; x++) {
+      // Gradient pro Zelle (zentrale Differenz), später bilinear interpoliert → weiches Relief ohne Facetten
+      if (!this.gxC || this.gxC.length !== W * H) { this.gxC = new Float32Array(W * H); this.gyC = new Float32Array(W * H); }
+      const gxC = this.gxC, gyC = this.gyC;
+      for (let y = Math.max(0, cy0 - 2); y < Math.min(H, cy1 + 2); y++) {
+        for (let x = Math.max(0, cx0 - 2); x < Math.min(W, cx1 + 2); x++) {
           const i = y * W + x;
-          const xl = x > 0 ? i - 1 : i, xr = x < W - 1 ? i + 1 : i;
-          const iu = yu * W + x, id = yd * W + x;
-          const hv = h[i];
+          const l = x > 0 ? i - 1 : i, r = x < Wm ? i + 1 : i, u = y > 0 ? i - W : i, dn = y < Hm ? i + W : i;
+          if (h[i] < 0) { gxC[i] = h[r] - h[l]; gyC[i] = h[dn] - h[u]; }
+          else {
+            gxC[i] = Math.max(0, h[r]) - Math.max(0, h[l]);
+            gyC[i] = Math.max(0, h[dn]) - Math.max(0, h[u]);
+          }
+        }
+      }
+
+
+      for (let Y = cy0 * S; Y < cy1 * S; Y++) {
+        let fy = (Y + 0.5) / S - 0.5;
+        if (fy < 0) fy = 0; else if (fy > Hm) fy = Hm;
+        const cy = (Y / S) | 0;
+        const iy = fy | 0, ty = fy - iy, iyd = iy < Hm ? W : 0;
+        const lt = latT[iy] + (latT[iy < Hm ? iy + 1 : iy] - latT[iy]) * ty;
+        for (let X = cx0 * S; X < cx1 * S; X++) {
+          let fx = (X + 0.5) / S - 0.5;
+          if (fx < 0) fx = 0; else if (fx > Wm) fx = Wm;
+          const cx = (X / S) | 0;
+          const i = cy * W + cx;
+          // bilineare Gewichte der vier umgebenden Zellmittelpunkte
+          const ix = fx | 0, tx = fx - ix;
+          const i00 = iy * W + ix, i10 = i00 + (ix < Wm ? 1 : 0), i01 = i00 + iyd, i11 = i10 + iyd;
+          const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+          const h00 = h[i00], h10 = h[i10], h01 = h[i01], h11 = h[i11];
+          const hv = h00 * w00 + h10 * w10 + h01 * w01 + h11 * w11;
           const ocean = hv < 0;
-          const isLake = lake[i] === 1;
+          const isLake = !ocean && lake[i00] * w00 + lake[i10] * w10 + lake[i01] * w01 + lake[i11] * w11 >= 0.5;
           let r, g, b;
 
-          // Relief-Schattierung
+          const gx = gxC[i00] * w00 + gxC[i10] * w10 + gxC[i01] * w01 + gxC[i11] * w11;
+          const gy = gyC[i00] * w00 + gyC[i10] * w10 + gyC[i01] * w01 + gyC[i11] * w11;
+
           let shade = 1;
-          if (reliefAmt > 0 && !isLake && (!ocean || style === 'geo')) {
-            let dzdx, dzdy, z;
-            if (ocean) {
-              dzdx = h[xr] - h[xl]; dzdy = h[id] - h[iu]; z = zSea;
-            } else {
-              dzdx = Math.max(0, h[xr]) - Math.max(0, h[xl]);
-              dzdy = Math.max(0, h[id]) - Math.max(0, h[iu]);
-              z = zLand;
-            }
-            const nx = -dzdx * z, ny = -dzdy * z;
+          if (reliefAmt > 0 && !isLake && (!ocean || sty === 0)) {
+            const z = ocean ? zSea : zLand;
+            const nx = -gx * z, ny = -gy * z;
             const len = Math.sqrt(nx * nx + ny * ny + 1);
             const dot = (nx * lx + ny * ly + lz) / len;
             shade = 1 + (dot / lz - 1) * reliefAmt * (ocean ? 0.6 : 1);
@@ -139,20 +169,21 @@
 
           if (ocean) {
             const depth = -hv;
+            const cdi = cd[i00] * w00 + cd[i10] * w10 + cd[i01] * w01 + cd[i11] * w11;
             if (sty === 0) {
               const k = Math.min(255, (depth * 255) | 0) * 3;
               r = OCEAN_LUT[k]; g = OCEAN_LUT[k + 1]; b = OCEAN_LUT[k + 2];
-              if (cd[i] <= 2) { const f = (3 - cd[i]) * 0.09; r += (170 - r) * f; g += (215 - g) * f; b += (220 - b) * f; }
+              // Flachwasser und Brandung entlang der Küste
+              if (cdi < 4) { const f = (4 - cdi) * 0.075; r += (160 - r) * f; g += (212 - g) * f; b += (214 - b) * f; }
+              if (depth < 0.012) { const f = (0.012 - depth) / 0.012 * 0.45; r += (205 - r) * f; g += (232 - g) * f; b += (230 - b) * f; }
               if (lt < 0.06) { const f = FMM.smoothstep(0.06, -0.04, lt) * 0.85; r += (226 - r) * f; g += (236 - g) * f; b += (242 - b) * f; }
             } else if (sty === 1) {
               r = 170 - depth * 40; g = 205 - depth * 35; b = 224 - depth * 20;
-              const c = cd[i];
-              if (c === 3 || c === 8 || c === 15) { r -= 26; g -= 20; b -= 12; }
+              if (Math.abs(cdi - 3) < 0.35 || Math.abs(cdi - 8) < 0.35 || Math.abs(cdi - 15) < 0.35) { r -= 24; g -= 18; b -= 10; }
             } else {
               const pp = paper[i] * 10;
               r = 205 + pp - depth * 25; g = 192 + pp - depth * 25; b = 158 + pp - depth * 22;
-              const c = cd[i];
-              if (c === 3 || c === 7 || c === 12) { r -= 34; g -= 34; b -= 30; }
+              if (Math.abs(cdi - 3) < 0.35 || Math.abs(cdi - 7) < 0.35 || Math.abs(cdi - 12) < 0.35) { r -= 32; g -= 32; b -= 28; }
             }
             shade = 1 + (shade - 1) * 0.5;
           } else if (isLake) {
@@ -163,29 +194,25 @@
             const t = FMM.cellTemp(lt, hv);
             if (sty === 0) {
               // Landschaftsform bestimmen
-              const gx = Math.max(0, h[xr]) - Math.max(0, h[xl]);
-              const gy = Math.max(0, h[id]) - Math.max(0, h[iu]);
               const slope = Math.sqrt(gx * gx + gy * gy) * slopeK;
-              const v = veg[i], fn = fine[i];
+              const v = veg[i00] * w00 + veg[i10] * w10 + veg[i01] * w01 + veg[i11] * w11;
+              const fn = fine[i00] * w00 + fine[i10] * w10 + fine[i01] * w01 + fine[i11] * w11;
+              const rdi = rdist[i00] * w00 + rdist[i10] * w10 + rdist[i01] * w01 + rdist[i11] * w11;
               const ov = bmap[i];
-              const bi = ov !== 255 ? ov : FMM.classifyBiome(t, moist[i], hv, slope, rdist[i], v);
+              const bi = ov !== 255 ? ov : FMM.classifyBiome(t, moist[i00] * w00 + moist[i10] * w10 + moist[i01] * w01 + moist[i11] * w11, hv, slope, rdi, v);
               biome[i] = bi;
               const c = FMM.BIOMES[bi].color;
               r = c[0]; g = c[1]; b = c[2];
               if (forest[bi]) {
-                // Baumkronen-Struktur
-                const k = 0.84 + fn * 0.2;
+                const k = 0.84 + fn * 0.2; // Baumkronen
                 r *= k; g *= k; b *= k;
               } else if (bi === BI.wueste) {
-                // Dünen
-                const k = 0.95 + 0.06 * Math.sin(x * 0.55 + y * 0.2 + v * 18);
+                const k = 0.95 + 0.06 * Math.sin(fx * 0.55 + fy * 0.2 + v * 18); // Dünen
                 r *= k; g *= k; b *= k;
               } else if (bi === BI.sumpf) {
-                // Wasserlachen
-                if (fn > 0.3) { r = (r + 70) / 2; g = (g + 108) / 2; b = (b + 124) / 2; }
+                if (fn > 0.3) { r = (r + 70) / 2; g = (g + 108) / 2; b = (b + 124) / 2; } // Wasserlachen
               } else if (bi === BI.savanne) {
-                // vereinzelte Baumgruppen
-                if (fn > 0.5) { r *= 0.62; g *= 0.7; b *= 0.55; }
+                if (fn > 0.5) { r *= 0.62; g *= 0.7; b *= 0.55; } // Baumgruppen
               } else if (bi === BI.fels) {
                 const k = 0.94 + fn * 0.08;
                 r *= k; g *= k; b *= k;
@@ -193,11 +220,10 @@
                 const k = 0.95 + v * 0.07 + fn * 0.03;
                 r *= k; g *= k; b *= k;
               }
-              // Schneekappen auf Gipfeln
               const snow = ov !== 255 && bi !== BI.fels ? 0 : FMM.smoothstep(0.12, 0.05, t) * (bi === BI.fels ? 1 : 0.6);
               if (snow > 0 && bi !== BI.gletscher) { r += (244 - r) * snow; g += (247 - g) * snow; b += (250 - b) * snow; }
-              // Strand
-              if (hv < 0.012 && cd[i] <= 1 && t > 0.3) { r = (r + 214) / 2; g = (g + 200) / 2; b = (b + 160) / 2; }
+              // Strand: schmaler, weicher Sandsaum
+              if (hv < 0.014 && t > 0.3) { const f = (0.014 - hv) / 0.014 * 0.6; r += (218 - r) * f; g += (204 - g) * f; b += (164 - b) * f; }
             } else if (sty === 1) {
               r = 240; g = 232; b = 208;
               const hi = FMM.smoothstep(0.35, 0.8, hv);
@@ -212,44 +238,35 @@
 
           r *= shade; g *= shade; b *= shade;
 
-          // Staaten
-          if (!ocean) {
-            const s = sm[i];
-            if (L.stateFill && s && sValid[s]) {
+          // Staatsfarben (Zelle kann am Küstensaum Meer sein → Nachbarstaat verwenden)
+          if (!ocean && L.stateFill) {
+            let s = sm[i], si = i;
+            if (h[i] < 0) {
+              s = 0;
+              if (cx < Wm && h[i + 1] >= 0) { s = sm[i + 1]; si = i + 1; }
+              else if (cx > 0 && h[i - 1] >= 0) { s = sm[i - 1]; si = i - 1; }
+              else if (cy < Hm && h[i + W] >= 0) { s = sm[i + W]; si = i + W; }
+              else if (cy > 0 && h[i - W] >= 0) { s = sm[i - W]; si = i - W; }
+            }
+            if (s && sValid[s]) {
               let a = sty === 1 ? 0.42 : 0.28;
-              const dist = bd[i];
+              const dist = bd[si];
               if (dist < 4) a += (4 - dist) * 0.07;
               if (isLake) a *= 0.25;
               r += (sr[s] - r) * a; g += (sg[s] - g) * a; b += (sb[s] - b) * a;
             }
-            if (L.borders && !isLake) {
-              let edge = false;
-              if (x < W - 1 && h[i + 1] >= 0 && sm[i + 1] !== s) edge = true;
-              else if (x > 0 && h[i - 1] >= 0 && sm[i - 1] !== s) edge = true;
-              else if (y < H - 1 && h[i + W] >= 0 && sm[i + W] !== s) edge = true;
-              else if (y > 0 && h[i - W] >= 0 && sm[i - W] !== s) edge = true;
-              if (edge) {
-                const a = sty === 0 ? 0.6 : 0.8;
-                r += (border[0] - r) * a; g += (border[1] - g) * a; b += (border[2] - b) * a;
-              }
-            }
-            // Küstenlinie
-            if (cd[i] === 0) {
-              const f = sty === 0 ? 0.82 : 0.45;
-              r *= f; g *= f; b *= f;
-            }
           }
 
           // feines Korn
-          const grain = (FMM.hash2(x, y) - 0.5) * (sty === 0 ? 6 : 8);
-          const o = i * 4;
+          const grain = (FMM.hash2(X, Y) - 0.5) * (sty === 0 ? 6 : 8);
+          const o = (Y * PW + X) * 4;
           px[o] = r + grain;
           px[o + 1] = g + grain;
           px[o + 2] = b + grain;
           px[o + 3] = 255;
         }
       }
-      this.bctx.putImageData(this.img, 0, 0, x0, y0, x1 - x0, y1 - y0);
+      this.bctx.putImageData(this.img, 0, 0, cx0 * S, cy0 * S, (cx1 - cx0) * S, (cy1 - cy0) * S);
       if (!rect) this.biomeCount = null;
     }
 
@@ -295,6 +312,37 @@
       ctx.save();
       ctx.setTransform(view.scale * (opts.dpr || 1), 0, 0, view.scale * (opts.dpr || 1), view.ox * (opts.dpr || 1), view.oy * (opts.dpr || 1));
       this.hitBoxes = [];
+      const sty = map.view.style;
+
+      // Küstenlinien und Seeufer (während eines Geländestrichs ausgeblendet, da veraltet)
+      if (this.live !== 'terrain') {
+        if (!this.coastCache) {
+          this.coastCache = {
+            coast: FMM.Contours.toPath(FMM.Contours.coastlines(map)),
+            lakes: FMM.Contours.toPath(FMM.Contours.lakeShores(map, d)),
+          };
+        }
+        const cc = this.coastCache;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        if (sty === 'geo') {
+          ctx.strokeStyle = 'rgba(225,242,240,0.35)';
+          ctx.lineWidth = 2.4 * unit;
+          ctx.stroke(cc.coast);
+          ctx.strokeStyle = 'rgba(28,48,58,0.6)';
+          ctx.lineWidth = 0.75 * unit;
+          ctx.stroke(cc.coast);
+          ctx.strokeStyle = 'rgba(28,48,58,0.45)';
+          ctx.lineWidth = 0.6 * unit;
+          ctx.stroke(cc.lakes);
+        } else {
+          ctx.strokeStyle = sty === 'political' ? 'rgba(52,66,74,0.9)' : 'rgba(74,52,32,0.95)';
+          ctx.lineWidth = (sty === 'political' ? 1.0 : 1.3) * unit;
+          ctx.stroke(cc.coast);
+          ctx.lineWidth = 0.8 * unit;
+          ctx.stroke(cc.lakes);
+        }
+      }
 
       if (L.rivers) {
         if (!this.riverCache) this.buildRivers(map, d);
@@ -308,6 +356,56 @@
           ctx.stroke(rc.buckets[k]);
         }
         ctx.globalAlpha = 1;
+      }
+
+      // Staatsgrenzen
+      if (L.borders && this.live !== 'terrain' && this.live !== 'state') {
+        if (!this.borderCache) this.borderCache = FMM.Contours.toPath(FMM.Contours.borders(map));
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        if (sty === 'political') {
+          ctx.strokeStyle = 'rgba(255,252,244,0.55)';
+          ctx.lineWidth = 2.6 * unit;
+          ctx.stroke(this.borderCache);
+          ctx.strokeStyle = 'rgba(64,48,44,0.85)';
+          ctx.lineWidth = 1.1 * unit;
+          ctx.stroke(this.borderCache);
+        } else {
+          ctx.strokeStyle = sty === 'geo' ? 'rgba(130,28,28,0.75)' : 'rgba(122,52,36,0.85)';
+          ctx.lineWidth = (sty === 'geo' ? 1.0 : 1.2) * unit;
+          ctx.setLineDash(sty === 'geo' ? [4 * unit, 2.5 * unit] : [5 * unit, 2 * unit, 1 * unit, 2 * unit]);
+          ctx.stroke(this.borderCache);
+        }
+        ctx.restore();
+      }
+
+      // Straßen
+      if (L.roads && this.live !== 'terrain') {
+        if (!this.roadCache) {
+          const r = FMM.buildRoads(map, d);
+          this.roadCache = { main: FMM.Contours.toPath(r.main), minor: FMM.Contours.toPath(r.minor), count: r.main.length + r.minor.length };
+        }
+        const rc = this.roadCache;
+        const col = sty === 'geo' ? 'rgba(92,58,32,0.9)' : sty === 'political' ? 'rgba(120,72,44,0.85)' : 'rgba(70,46,24,0.9)';
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        if (sty === 'geo') {
+          // heller Rand lässt Straßen auf dunklem Wald gut sichtbar werden
+          ctx.strokeStyle = 'rgba(244,232,198,0.7)';
+          ctx.lineWidth = 3 * unit;
+          ctx.stroke(rc.main);
+          ctx.lineWidth = 2 * unit;
+          ctx.stroke(rc.minor);
+        }
+        ctx.strokeStyle = col;
+        ctx.lineWidth = (sty === 'geo' ? 1.5 : 1.2) * unit;
+        ctx.stroke(rc.main);
+        ctx.lineWidth = (sty === 'geo' ? 1 : 0.8) * unit;
+        ctx.setLineDash([2.2 * unit, 1.8 * unit]);
+        ctx.stroke(rc.minor);
+        ctx.restore();
       }
 
       if (L.grid) this.drawGrid(ctx, map, unit);
@@ -513,7 +611,8 @@
       const total = this.biomeCount.reduce((a, b) => a + b, 0) || 1;
       const items = FMM.BIOMES.filter((b) => this.biomeCount[b.id] / total > 0.004)
         .map((b) => ({ name: b.name, color: `rgb(${b.color.join(',')})` }));
-      items.push({ name: 'Fluss', line: true }, { name: 'See / Meer', color: 'rgb(56,110,158)' });
+      items.push({ name: 'Fluss', line: st.river }, { name: 'See / Meer', color: 'rgb(56,110,158)' });
+      if (map.view.layers.roads) items.push({ name: 'Straße', line: 'rgba(92,58,32,0.9)' }, { name: 'Weg', line: 'rgba(92,58,32,0.9)', dash: true });
       const fs = 10 * unit, row = 14 * unit, pad = 8 * unit, sw = 14 * unit;
       ctx.save();
       ctx.font = `${fs}px ${FONT_TEXT}`;
@@ -534,9 +633,11 @@
       items.forEach((it, k) => {
         const yy = y + pad + row * (k + 1);
         if (it.line) {
-          ctx.strokeStyle = st.river;
-          ctx.lineWidth = 2 * unit;
+          ctx.strokeStyle = it.line;
+          ctx.lineWidth = (it.dash ? 1 : 2) * unit;
+          ctx.setLineDash(it.dash ? [2.2 * unit, 1.8 * unit] : []);
           ctx.beginPath(); ctx.moveTo(x + pad, yy + row / 2); ctx.lineTo(x + pad + sw, yy + row / 2); ctx.stroke();
+          ctx.setLineDash([]);
         } else {
           ctx.fillStyle = it.color;
           ctx.fillRect(x + pad, yy + 2 * unit, sw, row - 4 * unit);
