@@ -43,6 +43,7 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 | Glätten / Einebnen | `G` / `E` | Gelände weicher machen oder auf eine Höhe bringen |
 | Land / Meer | `L` / `M` | Neues Land aufschütten oder versenken |
 | Gebirge | `B` | Zerklüftete Gebirgszüge malen |
+| Landschaft | `W` | Landschaftsform malen (Wald, Wiese, Wüste, Sumpf …); „Automatisch“ entfernt die Übermalung |
 | Staat malen | `P` | Gebiet einem Staat zuweisen („Herrenlos“ wirkt als Radierer) |
 | Städte | `C` | Städte setzen, verschieben, umbenennen, zur Hauptstadt machen |
 | Texte | `X` | Beschriftungen und Meeresnamen setzen; Staatsnamen verschieben und drehen |

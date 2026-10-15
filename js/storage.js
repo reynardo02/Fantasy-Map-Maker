@@ -41,6 +41,7 @@
       heights: bytesToB64(new Uint8Array(hq.buffer)),
       moisture: bytesToB64(mq),
       stateMap: bytesToB64(new Uint8Array(map.stateMap.buffer, map.stateMap.byteOffset, map.stateMap.byteLength)),
+      biomeMap: bytesToB64(map.biomeMap),
     };
   };
 
@@ -57,6 +58,9 @@
     const sb = b64ToBytes(o.stateMap);
     const stateMap = new Uint16Array(N);
     stateMap.set(new Uint16Array(sb.buffer, sb.byteOffset, N));
+    // gemalte Landschaftsformen (255 = automatisch); ältere Dateien haben keine
+    const biomeMap = new Uint8Array(N).fill(255);
+    if (o.biomeMap) biomeMap.set(b64ToBytes(o.biomeMap).subarray(0, N));
     const view = Object.assign({ style: 'geo', relief: 1 }, o.view);
     view.layers = Object.assign({}, FMM.STYLE_PRESETS[view.style] || FMM.STYLE_PRESETS.geo, (o.view || {}).layers);
     return {
@@ -74,6 +78,7 @@
       heights,
       moisture,
       stateMap,
+      biomeMap,
     };
   };
 

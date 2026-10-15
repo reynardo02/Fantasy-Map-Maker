@@ -84,7 +84,7 @@
       const h = map.heights, moist = map.moisture, sm = map.stateMap;
       const lake = d.lake, cd = d.coastDist, bd = d.borderDist, latT = d.latT;
       const paper = this.paper, veg = this.veg, fine = this.fine, biome = this.biome;
-      const rdist = d.riverDist;
+      const rdist = d.riverDist, bmap = map.biomeMap;
       const px = this.img.data;
       const BI = FMM.BIOME_ID;
       const forest = FMM.BIOMES.map((b) => FMM.isForest(b.id));
@@ -167,7 +167,8 @@
               const gy = Math.max(0, h[id]) - Math.max(0, h[iu]);
               const slope = Math.sqrt(gx * gx + gy * gy) * slopeK;
               const v = veg[i], fn = fine[i];
-              const bi = FMM.classifyBiome(t, moist[i], hv, slope, rdist[i], v);
+              const ov = bmap[i];
+              const bi = ov !== 255 ? ov : FMM.classifyBiome(t, moist[i], hv, slope, rdist[i], v);
               biome[i] = bi;
               const c = FMM.BIOMES[bi].color;
               r = c[0]; g = c[1]; b = c[2];
@@ -193,7 +194,7 @@
                 r *= k; g *= k; b *= k;
               }
               // Schneekappen auf Gipfeln
-              const snow = FMM.smoothstep(0.12, 0.05, t) * (bi === BI.fels ? 1 : 0.6);
+              const snow = ov !== 255 && bi !== BI.fels ? 0 : FMM.smoothstep(0.12, 0.05, t) * (bi === BI.fels ? 1 : 0.6);
               if (snow > 0 && bi !== BI.gletscher) { r += (244 - r) * snow; g += (247 - g) * snow; b += (250 - b) * snow; }
               // Strand
               if (hv < 0.012 && cd[i] <= 1 && t > 0.3) { r = (r + 214) / 2; g = (g + 200) / 2; b = (b + 160) / 2; }

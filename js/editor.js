@@ -4,7 +4,7 @@
   const FMM = window.FMM;
 
   const TERRAIN_TOOLS = new Set(['raise', 'lower', 'smooth', 'flatten', 'land', 'sea', 'mountain']);
-  const BRUSH_TOOLS = new Set([...TERRAIN_TOOLS, 'state']);
+  const BRUSH_TOOLS = new Set([...TERRAIN_TOOLS, 'state', 'biome']);
 
   const HINTS = {
     pan: 'Ziehen zum Verschieben · Mausrad zum Zoomen · Klick auf Stadt/Text zum Auswählen',
@@ -16,6 +16,7 @@
     sea: 'Land im Meer versinken lassen',
     mountain: 'Zerklüftete Gebirge auftürmen',
     state: 'Gebiet dem gewählten Staat zuweisen (Staat rechts auswählen)',
+    biome: 'Landschaftsform malen (rechts auswählen) · „Automatisch“ entfernt Übermalungen',
     city: 'Klick auf freie Fläche: neue Stadt · Klick auf Stadt: auswählen · Ziehen: verschieben',
     label: 'Klick auf freie Fläche: neuer Text · Klick auf Text/Staatsnamen: auswählen · Ziehen: verschieben',
   };
@@ -27,25 +28,29 @@
       this.undoStack = [];
       this.redoStack = [];
       this.counter = 1;
-      this.cache = { h: null, s: null };
+      this.cache = { h: null, s: null, b: null };
     }
     reset() {
       this.undoStack = [];
       this.redoStack = [];
-      this.cache = { h: null, s: null };
+      this.cache = { h: null, s: null, b: null };
       this.app.terrainVersion = ++this.counter;
       this.app.stateVersion = ++this.counter;
+      this.app.biomeVersion = ++this.counter;
     }
     snapshot() {
       const app = this.app, map = app.map;
       // unveränderliche Kopien wiederverwenden, solange sich nichts geändert hat
       if (!this.cache.h || this.cache.h.v !== app.terrainVersion) this.cache.h = { v: app.terrainVersion, a: map.heights.slice() };
       if (!this.cache.s || this.cache.s.v !== app.stateVersion) this.cache.s = { v: app.stateVersion, a: map.stateMap.slice() };
+      if (!this.cache.b || this.cache.b.v !== app.biomeVersion) this.cache.b = { v: app.biomeVersion, a: map.biomeMap.slice() };
       return {
         tv: app.terrainVersion,
         sv: app.stateVersion,
         heights: this.cache.h.a,
         stateMap: this.cache.s.a,
+        bv: app.biomeVersion,
+        biomeMap: this.cache.b.a,
         json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, settings: map.settings }),
       };
     }
@@ -57,6 +62,7 @@
     }
     newVersion(kind) {
       if (kind === 'terrain') this.app.terrainVersion = ++this.counter;
+      else if (kind === 'biome') this.app.biomeVersion = ++this.counter;
       else this.app.stateVersion = ++this.counter;
     }
     restore(snap) {
@@ -64,6 +70,7 @@
       const terrainChanged = snap.tv !== app.terrainVersion;
       if (terrainChanged) { map.heights = snap.heights.slice(); app.terrainVersion = snap.tv; this.cache.h = { v: snap.tv, a: snap.heights }; }
       if (snap.sv !== app.stateVersion) { map.stateMap = snap.stateMap.slice(); app.stateVersion = snap.sv; this.cache.s = { v: snap.sv, a: snap.stateMap }; }
+      if (snap.bv !== app.biomeVersion) { map.biomeMap = snap.biomeMap.slice(); app.biomeVersion = snap.bv; this.cache.b = { v: snap.bv, a: snap.biomeMap }; }
       const o = JSON.parse(snap.json);
       map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.settings = o.settings;
       app.afterRestore(terrainChanged);
@@ -156,6 +163,7 @@
       this.tool = tool;
       document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool));
       document.getElementById('hint').textContent = HINTS[tool] || '';
+      if (this.app.onToolChanged) this.app.onToolChanged(tool);
       this.updateCursor();
       this.requestDraw();
     }
@@ -223,7 +231,7 @@
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = 'rgba(0,0,0,0.6)';
         ctx.beginPath(); ctx.arc(this.mouse.sx, this.mouse.sy, r + 1, 0, Math.PI * 2); ctx.stroke();
-        ctx.strokeStyle = this.tool === 'state' ? (app.paintColor() || '#fff') : '#fff';
+        ctx.strokeStyle = this.tool === 'state' ? (app.paintColor() || '#fff') : this.tool === 'biome' ? app.biomePaintColor() : '#fff';
         ctx.beginPath(); ctx.arc(this.mouse.sx, this.mouse.sy, r, 0, Math.PI * 2); ctx.stroke();
         ctx.fillStyle = '#fff';
         ctx.fillRect(this.mouse.sx - 1, this.mouse.sy - 1, 2, 2);
@@ -254,7 +262,7 @@
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (this.app.selection) { e.preventDefault(); this.app.deleteSelection(); } }
       else if (e.key === 'Escape') this.app.select(null);
       else if (!mod) {
-        const keys = { v: 'pan', h: 'raise', t: 'lower', g: 'smooth', e: 'flatten', l: 'land', m: 'sea', b: 'mountain', p: 'state', c: 'city', x: 'label' };
+        const keys = { v: 'pan', h: 'raise', t: 'lower', g: 'smooth', e: 'flatten', l: 'land', m: 'sea', b: 'mountain', p: 'state', w: 'biome', c: 'city', x: 'label' };
         const k = keys[e.key.toLowerCase()];
         if (k) this.setTool(k);
         else if (e.key === '+') this.zoomAt(this.cssW / 2, this.cssH / 2, 1.25);
@@ -290,7 +298,7 @@
       if (BRUSH_TOOLS.has(this.tool)) {
         this.app.history.push();
         const isTerrain = TERRAIN_TOOLS.has(this.tool);
-        this.app.history.newVersion(isTerrain ? 'terrain' : 'state');
+        this.app.history.newVersion(isTerrain ? 'terrain' : this.tool === 'biome' ? 'biome' : 'state');
         const i = this.cellIndex(m.x, m.y);
         this.pointer = {
           kind: 'brush',
@@ -368,6 +376,7 @@
       if (p.kind === 'brush') {
         this.flushDirty();
         if (p.terrain) this.app.afterTerrainEdit(p.wasWater);
+        else if (this.tool === 'biome') this.app.afterBiomeEdit();
         else this.app.afterStateEdit();
       }
       if (p.kind === 'drag' && p.moved) this.app.changed();
@@ -397,6 +406,23 @@
       const h = map.heights;
       const s = this.brush.strength;
       const tool = this.tool;
+
+      if (tool === 'biome') {
+        // Rand leicht ausgefranst, damit gemalte Flächen natürlich wirken
+        const id = app.paintBiome;
+        const bm = map.biomeMap, fine = app.renderer.fine;
+        for (let y = y0; y <= y1; y++) {
+          for (let x = x0; x <= x1; x++) {
+            const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+            const i = y * W + x;
+            const lim = r * (0.82 + fine[i] * 0.18);
+            if (dx * dx + dy * dy > lim * lim) continue;
+            if (h[i] >= 0) bm[i] = id;
+          }
+        }
+        this.markDirty({ x0: x0 - 2, y0: y0 - 2, x1: x1 + 3, y1: y1 + 3 });
+        return;
+      }
 
       if (tool === 'state') {
         const id = app.paintStateId;

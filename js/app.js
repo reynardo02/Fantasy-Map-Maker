@@ -18,6 +18,8 @@
     paintStateId: 1,
     terrainVersion: 0,
     stateVersion: 0,
+    biomeVersion: 0,
+    paintBiome: FMM.BIOME_ID.wald,
     newCityType: 'city',
     saveTimer: 0,
     uiTimer: 0,
@@ -82,6 +84,7 @@
       // ausstehende Änderungen der bisherigen Karte sofort sichern
       if (this.savePending && this.map && this.map !== map) this.autosave();
       this.map = map;
+      if (!map.biomeMap) map.biomeMap = new Uint8Array(map.width * map.height).fill(255);
       map.view = map.view || { style: 'geo' };
       map.view.layers = Object.assign({}, FMM.STYLE_PRESETS[map.view.style] || FMM.STYLE_PRESETS.geo, map.view.layers);
       this.d = FMM.Derive.all(map);
@@ -129,6 +132,55 @@
           if (cand[n] === 1) { cand[n] = 2; sm[n] = sm[c]; queue[qt++] = n; }
         }
       }
+    },
+
+    afterBiomeEdit() {
+      this.renderer.biomeCount = null;
+      this.editor.requestDraw();
+      this.renderBiomeInfo();
+      this.changed();
+    },
+
+    biomePaintColor() {
+      const b = FMM.BIOMES[this.paintBiome];
+      return b ? `rgb(${b.color.join(',')})` : '#ffffff';
+    },
+
+    onToolChanged(tool) {
+      $('biomeCard').hidden = tool !== 'biome';
+      if (tool !== 'biome' || !this.map) return;
+      this.renderBiomeList();
+      if (this.map.view.style !== 'geo') {
+        this.map.view.style = 'geo';
+        this.map.view.layers = Object.assign({}, FMM.STYLE_PRESETS.geo);
+        this.renderer.renderBase(this.map, this.d);
+        this.syncUi();
+        this.changed();
+        this.toast('Landschaftsformen sind in der geografischen Ansicht sichtbar – Ansicht gewechselt');
+      }
+    },
+
+    renderBiomeList() {
+      const list = $('biomeList');
+      const items = [{ id: 255, name: 'Automatisch (Radierer)', auto: true }, ...FMM.BIOMES];
+      list.innerHTML = items.map((b) => `<li data-id="${b.id}" class="${b.auto ? 'none ' : ''}${b.id === this.paintBiome ? 'active' : ''}">
+        <span class="sw" style="${b.auto ? 'background:transparent;border-style:dashed' : `background:rgb(${b.color.join(',')})`}"></span>
+        <span class="nm">${esc(b.name)}</span></li>`).join('');
+      list.querySelectorAll('li').forEach((li) => li.addEventListener('click', () => {
+        this.paintBiome = +li.dataset.id;
+        this.renderBiomeList();
+        this.editor.requestDraw();
+      }));
+      this.renderBiomeInfo();
+    },
+
+    renderBiomeInfo() {
+      if (!this.map || $('biomeCard').hidden) return;
+      let n = 0;
+      const bm = this.map.biomeMap, h = this.map.heights;
+      for (let i = 0; i < bm.length; i++) if (bm[i] !== 255 && h[i] >= 0) n++;
+      $('biomeInfo').textContent = n ? `Von Hand gemalt: ${this.km2(n)}` : 'Noch nichts von Hand gemalt – alles wird automatisch aus Klima und Gelände bestimmt.';
+      $('btnClearBiomes').disabled = !n;
     },
 
     afterStateEdit() {
@@ -379,7 +431,7 @@
       else {
         txt = 'Höhe ' + Math.round(h * 6000).toLocaleString('de-DE') + ' m';
         const b = FMM.BIOMES[this.renderer.biome[i]];
-        if (b && this.map.view.style === 'geo') txt += ' · ' + b.name;
+        if (b && this.map.view.style === 'geo') txt += ' · ' + b.name + (this.map.biomeMap[i] !== 255 ? ' (gemalt)' : '');
       }
       const st = this.stateAt(x, y);
       if (st) txt += ' · ' + st.form + ' ' + st.name;
@@ -518,6 +570,14 @@
 
       // Staaten
       $('btnAddState').onclick = () => this.addState();
+      $('btnClearBiomes').onclick = () => {
+        if (!confirm('Alle von Hand gemalten Landschaftsformen entfernen? (Rückgängig ist möglich)')) return;
+        this.history.push();
+        this.history.newVersion('biome');
+        this.map.biomeMap.fill(255);
+        this.renderer.renderBase(this.map, this.d);
+        this.afterBiomeEdit();
+      };
       $('btnRecalcBorders').onclick = () => {
         if (!confirm('Grenzen anhand der Hauptstädte neu berechnen? Von Hand gemalte Grenzen gehen dabei verloren (Rückgängig ist möglich).')) return;
         this.history.push();
@@ -568,6 +628,7 @@
       this.renderStateList();
       this.renderSelection();
       this.renderMapInfo();
+      if (this.editor.tool === 'biome') this.renderBiomeList();
     },
 
     renderMapInfo() {

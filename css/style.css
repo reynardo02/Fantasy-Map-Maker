@@ -70,7 +70,7 @@ input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid v
 /* ---------- Layout ---------- */
 .layout { flex: 1; display: flex; min-height: 0; }
 .tools {
-  width: 112px;
+  width: 122px;
   background: var(--panel);
   border-right: 1px solid var(--line);
   padding: 8px;
@@ -151,6 +151,7 @@ input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid v
 .state-list .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state-list .ar { color: var(--muted); font-size: 11px; }
 .state-list li.none .nm { font-style: italic; color: var(--muted); }
+.biome-list { max-height: none; }
 
 .form-grid { display: grid; grid-template-columns: 80px 1fr; gap: 6px 8px; align-items: center; font-size: 12.5px; margin-top: 10px; }
 .form-grid > span { color: var(--muted); }

@@ -457,6 +457,7 @@
     FMM.Derive.coastDistance(map, d0);
     map.moisture = generateMoisture(map, rng, d0.coastDist);
     map.stateMap = new Uint16Array(map.width * map.height);
+    map.biomeMap = new Uint8Array(map.width * map.height).fill(255);
     FMM.Derive.hydrology(map, d0);
     reduceLakes(map, d0, rng);
     const d = FMM.Derive.all(map);

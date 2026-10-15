@@ -42,6 +42,7 @@
         <button class="tool" data-tool="land" title="Land malen"><span>🟫</span>Land</button>
         <button class="tool" data-tool="sea" title="Meer malen"><span>🌊</span>Meer</button>
         <button class="tool" data-tool="mountain" title="Gebirgszug malen"><span>🏔️</span>Gebirge</button>
+        <button class="tool" data-tool="biome" title="Landschaftsform malen: Wald, Wüste, Sumpf … (W)"><span>🌲</span>Landschaft</button>
       </div>
       <div class="tool-group">
         <div class="group-title">Politik</div>
@@ -95,6 +96,15 @@
         <label class="row">Relief-Stärke
           <input id="reliefStrength" type="range" min="0.2" max="2.5" step="0.1" value="1">
         </label>
+      </section>
+
+      <section class="card" id="biomeCard" hidden>
+        <h3>Landschaft malen</h3>
+        <ul class="state-list biome-list" id="biomeList"></ul>
+        <div class="btn-row">
+          <button id="btnClearBiomes" title="Alle von Hand gemalten Landschaftsformen entfernen">↺ Alle Übermalungen entfernen</button>
+        </div>
+        <div class="info" id="biomeInfo"></div>
       </section>
 
       <section class="card" id="selectionCard" hidden>
