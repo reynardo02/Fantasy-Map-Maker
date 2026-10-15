@@ -26,6 +26,8 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Gleicher Seed = gleiche Welt**
 - Klima und Landschaftsformen: Gletscher, Hochgebirge, Tundra, Nadelwald, Laub- und Mischwald, Regenwald, Wiesen, Steppe, Savanne, Wüste, Sumpf. Entlang von Flüssen entstehen grüne Täler und Auwälder.
 - **Flüsse und Seen** aus einer echten Abflusssimulation (Senkenfüllung und Abflussakkumulation)
+- **Natürliche Küsten** mit Buchten, Landzungen und vorgelagerten Inselchen
+- **Straßennetz** zwischen den Städten: Wegsuche über das Gelände. Straßen meiden Gebirge und Gewässer und bündeln sich zu Hauptstraßen, kleine Orte hängen an Nebenwegen. Das Netz passt sich an, wenn Städte gesetzt, verschoben oder gelöscht werden.
 - Staaten breiten sich von ihren Hauptstädten über das Gelände aus. Gebirge und Flüsse werden dabei zu natürlichen Grenzen.
 - Namensgenerator mit sechs Sprachstilen (nordisch, elbisch, romanisch, germanisch, orientalisch, rau) für Staaten, Städte und Meere
 
@@ -33,7 +35,8 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Geografisch:** Landschaftsformen mit eigener Textur (Baumkronen in Wäldern, Dünen in Wüsten, Wasserlachen in Sümpfen), dazu Relief, Flüsse, Meerestiefen und eine Legende
 - **Politisch:** Staatsfarben, Grenzen und Staatsnamen, die sich der Form des Staats anpassen
 - **Antik:** Pergament-Look mit Gradnetz, Rahmen und Vignette
-- Ebenen einzeln schaltbar: Relief, Flüsse, Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
+- Küsten, Seeufer und Staatsgrenzen sind geglättete Vektorlinien; das Kartenbild wird in doppelter Auflösung berechnet
+- Ebenen einzeln schaltbar: Relief, Flüsse, Straßen, Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
 
 ### Bearbeiten
 | Werkzeug | Taste | Funktion |
@@ -65,6 +68,8 @@ css/style.css     Gestaltung
 js/core.js        Zufall (Seed), Simplex-Rauschen, Heap, Hilfsfunktionen
 js/names.js       Namensgenerator
 js/biomes.js      Landschaftsformen (Einteilung und Farben)
+js/contours.js    Geglättete Konturen (Küsten, Seeufer, Grenzen)
+js/roads.js       Straßennetz (A*-Wegsuche)
 js/derive.js      Klima, Flüsse und Seen, Küstenabstand, Staatsstatistiken
 js/generator.js   Weltgenerierung (Gelände, Feuchtigkeit, Staaten, Städte, Meere)
 js/render.js      Darstellung (Rasterbild und Vektorebene)
