@@ -193,6 +193,8 @@
         if (same <= 1) h[i] = land ? -0.01 : 0.005;
       }
     }
+    // Erosion formt Täler, Grate und Schwemmebenen
+    FMM.erode(h, W, H, p.erosion == null ? 0.6 : p.erosion, rng);
     return h;
   }
 
@@ -239,33 +241,14 @@
           if (cand[n] === 1) { cand[n] = 2; stack[sp++] = n; }
         }
       }
-      if (comp.length >= minLake && comp.length <= maxLake) comps.push(comp);
+      // keine Seen auf Gipfeln: nur in tieferen Lagen
+      if (comp.length >= minLake && comp.length <= maxLake && h[comp[0]] < 0.32) comps.push(comp);
     }
     // zufällige Auswahl, bevorzugt tiefer gelegene Seen
     comps.sort((a, b) => h[a[0]] - h[b[0]] + rng.range(-0.3, 0.3));
     const maxLakes = Math.round(4 + N / 120000);
     for (const comp of comps.slice(0, maxLakes)) for (const c of comp) keep[c] = 1;
     for (let i = 0; i < N; i++) if (h[i] >= 0 && !keep[i] && filled[i] > h[i]) h[i] = filled[i];
-  }
-
-  // ---------- Feuchtigkeit ----------
-  function generateMoisture(map, rng, coastDist) {
-    const W = map.width, H = map.height, N = W * H;
-    const noise = FMM.createNoise2D(rng);
-    const m = new Float32Array(N);
-    const reach = Math.max(W, H) * 0.06;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = y * W + x;
-        const n = FMM.fbm(noise, (x / H) * 2.4, (y / H) * 2.4, 5, 2, 0.5) * 0.5 + 0.5;
-        const cd = map.heights[i] < 0 ? 0 : coastDist[i];
-        const coast = Math.exp(-cd / reach);
-        // Kontrast verstärken → echte Trockengebiete (Wüsten, Steppen) und feuchte Regionen
-        const nc = FMM.clamp(0.5 + (n - 0.5) * 1.8, 0, 1);
-        m[i] = FMM.clamp(nc * 0.66 + coast * 0.38 - 0.06, 0, 1);
-      }
-    }
-    return m;
   }
 
   // ---------- Politik: Hauptstädte, Ausbreitung, Städte ----------
@@ -496,6 +479,8 @@
       stateCount: 10,
       cityCount: 40,
       culture: 'gemischt',
+      erosion: 0.6,
+      wind: 'auto',
     }, params);
     const rng = FMM.makeRng(p.seed);
     const map = {
@@ -516,6 +501,8 @@
         stateCount: p.stateCount,
         cityCount: p.cityCount,
         culture: p.culture,
+        erosion: p.erosion,
+        wind: p.wind,
         kmPerPixel: p.kmPerPixel || 4,
       },
       view: { style: 'geo', layers: Object.assign({}, FMM.STYLE_PRESETS.geo) },
@@ -526,7 +513,7 @@
     map.heights = generateHeights(p, rng);
     const d0 = { latT: FMM.Derive.latitudeTemps(map) };
     FMM.Derive.coastDistance(map, d0);
-    map.moisture = generateMoisture(map, rng, d0.coastDist);
+    map.moisture = FMM.computeMoisture(map);
     map.stateMap = new Uint16Array(map.width * map.height);
     map.biomeMap = new Uint8Array(map.width * map.height).fill(255);
     FMM.Derive.hydrology(map, d0);
