@@ -33,9 +33,14 @@
     return t;
   }
 
-  // Temperatur einer Zelle inkl. Höhenabkühlung
-  FMM.cellTemp = function (latT, h) {
-    return latT - (h > 0 ? h * 0.5 : 0);
+  // Temperatur einer Zelle inkl. Höhenabkühlung und Meeresströmung (a: Abweichung, optional)
+  FMM.cellTemp = function (latT, h, a) {
+    return latT - (h > 0 ? h * 0.5 : 0) + (a || 0);
+  };
+
+  // Salzsee: See in heißem, trockenem Gebiet (ohne Abfluss verdunstet das Wasser, Salz bleibt zurück)
+  FMM.saltiness = function (moist, t) {
+    return FMM.smoothstep(0.34, 0.2, moist) * FMM.smoothstep(0.42, 0.6, t);
   };
 
   // ---------- Hydrologie: Senkenfüllung (Priority-Flood), Abfluss, Seen, Flüsse ----------
@@ -105,7 +110,8 @@
       const c = order[k];
       flux[c] += 0.25 + moist[c];
       const dn = down[c];
-      if (dn >= 0) flux[dn] += flux[c];
+      // in Trockengebieten verdunstet und versickert ein Teil (Flüsse werden kleiner, enden als Wadi)
+      if (dn >= 0) flux[dn] += h[c] >= 0 && moist[c] < 0.32 ? flux[c] * (1 - 0.006 * (0.32 - moist[c]) / 0.32) : flux[c];
     }
 
     // Seen: gefüllte Senken mit ausreichender Tiefe und Größe
@@ -244,6 +250,9 @@
       }
     }
     d.coastDist = dist;
+    // Meeresströmungen hängen nur von Land/Meer und Breite ab → hier mit neu berechnen
+    d.cur = FMM.computeCurrents(map);
+    d.tempA = FMM.currentTempField(map, d.cur);
   }
 
   // ---------- Staaten: Grenzabstand, Fläche, Beschriftungsposition ----------

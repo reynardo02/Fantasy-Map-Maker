@@ -88,6 +88,9 @@
           <label>Anthropic-API-Schlüssel
             <input id="aiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
           </label>
+          <label>Workspace-ID <small>(optional, nur nötig wenn der Schlüssel keinem Workspace zugeordnet ist)</small>
+            <input id="aiWorkspace" type="text" placeholder="wrkspc_…" autocomplete="off" spellcheck="false">
+          </label>
           <p>Der Schlüssel bleibt nur in diesem Browser gespeichert und wird ausschließlich an <b>api.anthropic.com</b> gesendet. Jede Nachricht kostet je nach Umfang einige Cent über deinen Schlüssel. Einen Schlüssel bekommst du in der <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Anthropic Console</a>.</p>
           <p>Lehnt Claude eine Anfrage ab, übernimmt automatisch ein anderes Claude-Modell.</p>
           <div class="btn-row"><button id="aiKeySave" class="primary">Speichern</button><button id="aiKeyRemove">Schlüssel löschen</button></div>
@@ -120,11 +123,15 @@
           <label><input type="checkbox" data-layer="rivers"> Flüsse</label>
           <label><input type="checkbox" data-layer="roads"> Straßen</label>
           <label><input type="checkbox" data-layer="symbols"> Symbole</label>
+          <label><input type="checkbox" data-layer="settlements"> Dörfer &amp; Bauwerke</label>
+          <label><input type="checkbox" data-layer="seaRoutes"> Seewege</label>
+          <label><input type="checkbox" data-layer="seaSymbols"> Meeressymbole</label>
           <label><input type="checkbox" data-layer="stateFill"> Staatsfarben</label>
           <label><input type="checkbox" data-layer="borders"> Grenzen</label>
           <label><input type="checkbox" data-layer="cities"> Städte</label>
           <label><input type="checkbox" data-layer="stateLabels"> Staatsnamen</label>
           <label><input type="checkbox" data-layer="labels"> Texte &amp; Meere</label>
+          <label><input type="checkbox" data-layer="currents"> Meeresströmungen</label>
           <label><input type="checkbox" data-layer="grid"> Gradnetz</label>
           <label><input type="checkbox" data-layer="compass"> Kompass</label>
           <label><input type="checkbox" data-layer="scale"> Maßstab</label>
@@ -285,6 +292,7 @@
   <script src="js/roads.js"></script>
   <script src="js/symbols.js"></script>
   <script src="js/icons.js"></script>
+  <script src="js/decor.js"></script>
   <script src="js/render.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/editor.js"></script>

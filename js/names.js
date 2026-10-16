@@ -139,6 +139,10 @@
         ['Spiegel', 'Silber', 'Mond', 'Kristall', 'Schwarz', 'Nebel', 'Stern'],
         [['see', 'Der'], ['wasser', 'Das']]);
     }
+    saltLakeName(culture) {
+      const n = this.name(culture);
+      return this.rng.pick(['Salzsee von ' + n, n + '-Salzsee', 'Salzpfanne von ' + n, 'Der Weiße See', 'Das Bittere Wasser']);
+    }
     riverName(culture) {
       const n = this.name(culture);
       return this.rng.pick([n, n, n.replace(/[aeiouy]+$/i, '') + 'a', n + 'bach']);

@@ -22,7 +22,7 @@
     label: 'Klick auf freie Fläche: neuer Text · Klick auf Text/Staatsnamen: auswählen · Ziehen: verschieben',
     poi: 'Klick auf freie Fläche: neuer Ort (Typ rechts wählen) · Klick auf Ort: auswählen · Ziehen: verschieben',
     sketch: 'Umriss zeichnen → Land entsteht · mit Shift: Land versenken',
-    range: 'Punkte klicken → Gebirgszug · Doppelklick oder Enter: fertig · Esc: abbrechen · Breite/Höhe: Pinsel-Regler',
+    range: 'Punkte klicken → Gebirgszug oder Mauer · Doppelklick oder Enter: fertig · Esc: abbrechen · Breite/Höhe: Pinsel-Regler',
     river: 'Flusslauf von der Quelle zur Mündung zeichnen',
     move: 'Landmasse anklicken · Ziehen: verschieben · Mausrad: drehen · Shift+Mausrad: skalieren · Enter: übernehmen · Esc: abbrechen',
     reroll: 'Rechteck aufziehen → Bereich wird neu generiert',
@@ -59,7 +59,7 @@
         stateMap: this.cache.s.a,
         bv: app.biomeVersion,
         biomeMap: this.cache.b.a,
-        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, pois: map.pois || [], springs: map.springs || [], subtitle: map.subtitle || '', settings: map.settings }),
+        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, pois: map.pois || [], springs: map.springs || [], walls: map.walls || [], subtitle: map.subtitle || '', settings: map.settings }),
       };
     }
     push() {
@@ -85,7 +85,7 @@
       if (snap.sv !== app.stateVersion) { map.stateMap = snap.stateMap.slice(); app.stateVersion = snap.sv; this.cache.s = { v: snap.sv, a: snap.stateMap }; }
       if (snap.bv !== app.biomeVersion) { map.biomeMap = snap.biomeMap.slice(); app.biomeVersion = snap.bv; this.cache.b = { v: snap.bv, a: snap.biomeMap }; }
       const o = JSON.parse(snap.json);
-      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.pois = o.pois || []; map.springs = o.springs || []; map.subtitle = o.subtitle || ''; map.settings = o.settings;
+      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.pois = o.pois || []; map.springs = o.springs || []; map.walls = o.walls || []; map.subtitle = o.subtitle || ''; map.settings = o.settings;
       app.afterRestore(terrainChanged);
     }
     undo() {
@@ -395,7 +395,7 @@
       const m = this.toMap(sx, sy);
       this.app.showCoords(m.x, m.y);
       const p = this.pointer;
-      if (!p) { if (BRUSH_TOOLS.has(this.tool) || (this.shape && this.shape.kind === 'range')) this.requestDraw(); return; }
+      if (!p) { if (BRUSH_TOOLS.has(this.tool) || (this.shape && (this.shape.kind === 'range' || this.shape.kind === 'wall'))) this.requestDraw(); return; }
       if (p.kind === 'stroke') {
         const last = p.pts[p.pts.length - 1];
         if (Math.hypot(m.x - last[0], m.y - last[1]) * this.view.scale > 4) p.pts.push([m.x, m.y]);
@@ -506,6 +506,8 @@
       if (sh.kind === 'range' && sh.pts.length >= 2) {
         const width = Math.max(4, this.brush.size * 0.9), height = 0.25 + this.brush.strength * 0.7;
         app.applySculpt('Gebirgszug erschaffen', (map) => S.addMountainRange(map, sh.pts, { width, height }));
+      } else if (sh.kind === 'wall' && sh.pts.length >= 2) {
+        app.addWall(sh.pts);
       } else if (sh.kind === 'move' && (sh.dx || sh.dy || sh.angle || sh.scale !== 1)) {
         app.applySculpt('Landmasse verschoben', (map) => S.transformLandmass(map, sh.lm, { dx: sh.dx, dy: sh.dy, angle: sh.angle, scale: sh.scale }));
       }
@@ -551,11 +553,12 @@
         stroke(p.pts, this.tool === 'sketch', color);
       }
       if (p && p.kind === 'rect') stroke([[p.a.x, p.a.y], [p.b.x, p.a.y], [p.b.x, p.b.y], [p.a.x, p.b.y]], true, '#d9b3ff');
-      if (sh && sh.kind === 'range') {
+      if (sh && (sh.kind === 'range' || sh.kind === 'wall')) {
         const pts = sh.pts.slice();
         if (this.mouse && !this.pointer) { const m = this.toMap(this.mouse.sx, this.mouse.sy); pts.push([m.x, m.y]); }
-        stroke(pts, false, '#e8c9a0');
-        ctx.fillStyle = '#e8c9a0';
+        const col = sh.kind === 'wall' ? '#f0e6d0' : '#e8c9a0';
+        stroke(pts, false, col);
+        ctx.fillStyle = col;
         for (const [x, y] of sh.pts) { ctx.beginPath(); ctx.arc(x, y, 3 * lw, 0, Math.PI * 2); ctx.fill(); }
       }
       if (sh && sh.kind === 'move') {

@@ -318,6 +318,97 @@
     }
     // Erosion formt Täler, Grate und Schwemmebenen
     FMM.erode(h, W, H, p.erosion == null ? 0.6 : p.erosion, rng);
+
+    // Inselbögen: wo Platten im offenen Meer zusammenstoßen, reihen sich Vulkaninseln entlang eines Bogens,
+    // davor liegt ein Tiefseegraben
+    const unit = M / 750;
+    // Vulkankegel mit unregelmäßigem Umriss (Radius schwankt mit dem Winkel)
+    const cone = (cx, cy, r, peak, base) => {
+      const p1 = rng() * 6.28, p2 = rng() * 6.28, sx = rng.range(0.7, 1.4);
+      const x0 = Math.max(1, Math.floor(cx - r * 1.4)), x1 = Math.min(W - 2, Math.ceil(cx + r * 1.4));
+      const y0 = Math.max(1, Math.floor(cy - r * 1.4)), y1 = Math.min(H - 2, Math.ceil(cy + r * 1.4));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const dx = (x - cx) / sx, dy = (y - cy) * sx, a = Math.atan2(dy, dx);
+          const dd = Math.hypot(dx, dy) / (r * (1 + 0.22 * Math.sin(a * 2 + p1) + 0.12 * Math.sin(a * 3 + p2)));
+          if (dd >= 1) continue;
+          const i = y * W + x;
+          const v = base + (peak - base) * Math.pow(1 - dd, 1.6);
+          if (v > h[i]) h[i] = v;
+        }
+      }
+    };
+    const arcStep = Math.max(6, Math.round(15 * unit));
+    for (let gy = arcStep; gy < H - arcStep; gy += arcStep) {
+      for (let gx = arcStep; gx < W - arcStep; gx += arcStep) {
+        const x = gx + (rng() - 0.5) * arcStep * 0.8, y = gy + (rng() - 0.5) * arcStep * 0.8;
+        sampleGrid(x, y);
+        const i = (y | 0) * W + (x | 0);
+        if (f[6] < 0.55 || h[i] > -0.06 || f[5] > -0.05) continue; // nur auf hoher See an aktiver Grenze
+        // Nähe zum Land meiden (dort entstehen Küstengebirge)
+        let near = false;
+        const R = 12 * unit;
+        for (let a = 0; a < 8 && !near; a++) {
+          const xx = Math.round(x + Math.cos(a * 0.785) * R), yy = Math.round(y + Math.sin(a * 0.785) * R);
+          if (xx >= 0 && yy >= 0 && xx < W && yy < H && h[yy * W + xx] >= 0) near = true;
+        }
+        if (near) continue;
+        // Graben auf der Außenseite des Bogens
+        const nl = Math.hypot(f[10], f[11]) || 1, nx = f[10] / nl, ny = f[11] / nl;
+        for (let k = -6; k <= 6; k++) {
+          const tx = Math.round(x + nx * 14 * unit + (-ny) * k * arcStep / 12), ty = Math.round(y + ny * 14 * unit + nx * k * arcStep / 12);
+          for (let s = -2; s <= 2; s++) {
+            const xx = Math.round(tx + nx * s * unit), yy = Math.round(ty + ny * s * unit);
+            if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+            const j = yy * W + xx;
+            if (h[j] < 0) h[j] = Math.max(-1, h[j] - 0.06 * (1 - Math.abs(s) / 3));
+          }
+        }
+        if (rng() < 0.3) continue; // Lücken im Bogen
+        const r = (3.5 + rng() * 5.5) * unit * (0.8 + f[6] * 0.4);
+        cone(x, y, r * 2.2, -0.02, h[i]); // untermeerischer Sockel
+        cone(x + (rng() - 0.5) * r, y + (rng() - 0.5) * r, r, 0.08 + rng() * 0.22, -0.02);
+        if (rng() < 0.4) cone(x + (rng() - 0.5) * r * 2, y + (rng() - 0.5) * r * 2, r * 0.55, 0.05 + rng() * 0.12, -0.02);
+      }
+    }
+
+    // Atolle: Ringriffe um versunkene Vulkane in tropischen Meeren
+    const cl = FMM.CLIMATES[p.climate] || FMM.CLIMATES.gemaessigt;
+    const latAt = (y) => cl.latTop + (cl.latBottom - cl.latTop) * (y / (H - 1));
+    const nAtoll = Math.round(rng.range(2, 6) * (W * H) / (1200 * 750) * (type === LAND_TYPES.archipel ? 1.8 : 1));
+    const atolls = [];
+    for (let t = 0, n = 0; t < 400 && n < nAtoll; t++) {
+      const cx = rng.range(0.05, 0.95) * W, cy = rng.range(0.05, 0.95) * H;
+      if (Math.abs(latAt(cy)) > 26) continue;
+      const R = (5 + rng() * 6) * unit;
+      // genug Abstand zu Land und anderen Atollen, tiefes Meer
+      let ok = h[(cy | 0) * W + (cx | 0)] < -0.15;
+      for (let a = 0; a < 12 && ok; a++) {
+        const xx = Math.round(cx + Math.cos(a * 0.52) * R * 3), yy = Math.round(cy + Math.sin(a * 0.52) * R * 3);
+        if (xx < 0 || yy < 0 || xx >= W || yy >= H || h[yy * W + xx] >= -0.05) ok = false;
+      }
+      if (!ok || atolls.some((o) => Math.hypot(o[0] - cx, o[1] - cy) < 60 * unit)) continue;
+      atolls.push([cx, cy]);
+      n++;
+      const sx = rng.range(0.75, 1.25), ph = rng() * 6.28, ph2 = rng() * 6.28;
+      const x0 = Math.max(1, Math.floor(cx - R * 2.2)), x1 = Math.min(W - 2, Math.ceil(cx + R * 2.2));
+      const y0 = Math.max(1, Math.floor(cy - R * 2.2)), y1 = Math.min(H - 2, Math.ceil(cy + R * 2.2));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const dx = (x - cx) / sx, dy = (y - cy) * sx;
+          const ang = Math.atan2(dy, dx);
+          const rr = R * (1 + 0.18 * Math.sin(ang * 2 + ph) + 0.1 * Math.sin(ang * 3 + ph2));
+          const dd = Math.hypot(dx, dy) / rr;
+          const i = y * W + x;
+          if (dd < 0.85) h[i] = Math.max(h[i], -0.012 - 0.01 * (1 - dd)); // flache Lagune
+          else if (dd < 1.08) {
+            // Riffkranz, an einigen Stellen kleine Inseln (Motus)
+            const motu = Math.sin(ang * 5 + ph * 2) + 0.6 * Math.sin(ang * 9 + ph);
+            h[i] = motu > 0.55 ? 0.006 + 0.01 * (motu - 0.55) : -0.004;
+          } else if (dd < 2.2) h[i] = Math.max(h[i], -0.01 - 0.2 * Math.pow((dd - 1.08) / 1.12, 0.8));
+        }
+      }
+    }
     return h;
   }
 
@@ -338,33 +429,193 @@
   }
 
   // Fjorde: an kalten Gebirgsküsten werden die unteren Flusstäler unter den Meeresspiegel abgesenkt
-  // (wie von Gletschern ausgeschürfte Trogtäler)
-  function carveFjords(map, d) {
+  // (wie von Gletschern ausgeschürfte Trogtäler); vor den Mündungen liegen Schären
+  function carveFjords(map, d, rng) {
     const W = map.width, H = map.height, h = map.heights;
+    const unit = Math.min(W, H) / 750;
+    const mouths = [];
+    const seen = new Set();
     for (const path of d.rivers) {
       const n = path.length;
       const mouth = path[n - 1];
-      if (h[mouth] >= 0) continue; // Fluss muss ins Meer münden
-      if (d.latT[(mouth / W) | 0] > 0.32) continue; // nur in kalten Breiten
-      const L = Math.min(n - 1, 45);
-      let maxH = 0;
-      for (let k = 1; k <= L; k++) maxH = Math.max(maxH, h[path[n - 1 - k]]);
-      if (maxH < 0.36) continue; // nur an gebirgigen Küsten
-      for (let k = 1; k <= L; k++) {
-        const c = path[n - 1 - k];
-        const f = 1 - k / L;
-        const depth = -0.005 - 0.07 * f;
-        const rad = 1.1 + 2.2 * f;
+      if (h[mouth] >= 0 || seen.has(mouth)) continue; // Fluss muss ins Meer münden
+      seen.add(mouth);
+      if (d.latT[(mouth / W) | 0] + d.tempA[mouth] > 0.44) continue; // nur in kühlen Breiten (vereist gewesen)
+      // Hauptstrom von der Mündung flussaufwärts (jeweils der Zufluss mit dem meisten Wasser)
+      const trunk = [];
+      let c = path[n - 2];
+      const maxLen = Math.round(rng.range(28, 62) * unit);
+      while (c >= 0 && trunk.length < maxLen) {
+        trunk.push(c);
         const cx = c % W, cy = (c / W) | 0;
-        for (let dy = -3; dy <= 3; dy++) {
-          for (let dx = -3; dx <= 3; dx++) {
+        let best = -1, bf = d.riverThreshold * 0.5;
+        for (const [dx, dy] of FMM.N8) {
+          const x = cx + dx, y = cy + dy;
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          const j = y * W + x;
+          if (d.down[j] === c && d.flux[j] > bf) { bf = d.flux[j]; best = j; }
+        }
+        c = best;
+      }
+      const L = trunk.length;
+      if (L < 8 * unit) continue;
+      // keine zwei Fjorde dicht nebeneinander
+      if (mouths.some((o) => Math.hypot((o % W) - (mouth % W), ((o / W) | 0) - ((mouth / W) | 0)) < 9 * unit)) continue;
+      let maxH = 0;
+      for (const t of trunk) maxH = Math.max(maxH, h[t]);
+      if (maxH < 0.14) continue; // nur an hügeligen bis gebirgigen Küsten
+      const R = Math.ceil(5.5 * unit);
+      const ph = rng() * 100;
+      for (let k = 1; k <= L; k++) {
+        const c = trunk[k - 1];
+        const f = 1 - k / L;
+        const depth = -0.006 - 0.08 * f;
+        const rad = (0.9 + 1.7 * f) * unit;
+        // gewundener Verlauf: Mittellinie seitlich versetzt
+        const a = trunk[Math.max(0, k - 4)], b = trunk[Math.min(L - 1, k + 2)];
+        let tx = (b % W) - (a % W), ty = ((b / W) | 0) - ((a / W) | 0);
+        const tl = Math.hypot(tx, ty) || 1;
+        tx /= tl; ty /= tl;
+        const off = Math.sin(k * 0.16 + ph) * 1.8 * unit * Math.min(1, k / 6);
+        const cx = Math.round((c % W) - ty * off), cy = Math.round(((c / W) | 0) + tx * off);
+        const soft = 2.5 * unit;
+        for (let dy = -R; dy <= R; dy++) {
+          for (let dx = -R; dx <= R; dx++) {
             const dist = Math.hypot(dx, dy);
-            if (dist > rad) continue;
+            if (dist > rad + soft) continue;
             const x = cx + dx, y = cy + dy;
             if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
             const j = y * W + x;
-            h[j] = Math.min(h[j], depth * (1 - (dist / (rad + 0.5)) * 0.6));
+            // Rinne mit weich ansteigenden Ufern (glatte Küstenlinie statt Treppenstufen)
+            if (dist <= rad) h[j] = Math.min(h[j], depth * (1 - (dist / (rad + 0.5)) * 0.6) * Math.min(1, (rad - dist + 0.3) / 1.2));
+            else if (h[j] > 0) h[j] = Math.min(h[j], h[j] * ((dist - rad) / soft) + 0.0005);
           }
+        }
+        // steile Trogwände: Ufer leicht anheben
+        if (k % 3 === 0) {
+          for (let a = 0; a < 6; a++) {
+            const x = Math.round(cx + Math.cos(a * 1.047) * (rad + 1.5 * unit)), y = Math.round(cy + Math.sin(a * 1.047) * (rad + 1.5 * unit));
+            if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
+            const j = y * W + x;
+            if (h[j] > 0.02) h[j] += 0.02 * f;
+          }
+        }
+      }
+      mouths.push(mouth);
+    }
+    // Schären: kleine Felsinseln vor den Fjordmündungen
+    for (const m of mouths) {
+      const mx = m % W, my = (m / W) | 0;
+      const n = 3 + Math.floor(rng() * 6);
+      for (let k = 0; k < n; k++) {
+        const a = rng() * 6.28, rr = (2 + rng() * 9) * unit;
+        const cx = mx + Math.cos(a) * rr, cy = my + Math.sin(a) * rr;
+        const ci = FMM.clamp(cy | 0, 1, H - 2) * W + FMM.clamp(cx | 0, 1, W - 2);
+        if (h[ci] >= 0 || h[ci] < -0.25) continue;
+        const r = (0.6 + rng() * 1.1) * unit;
+        for (let y = Math.max(1, Math.floor(cy - r)); y <= Math.min(H - 2, Math.ceil(cy + r)); y++) {
+          for (let x = Math.max(1, Math.floor(cx - r)); x <= Math.min(W - 2, Math.ceil(cx + r)); x++) {
+            const dd = Math.hypot(x - cx, y - cy) / r;
+            if (dd < 1) h[y * W + x] = Math.max(h[y * W + x], 0.012 + 0.03 * (1 - dd));
+          }
+        }
+      }
+    }
+  }
+
+  // Lagunen und Nehrungen: an warmen, flachen Küsten trennt ein schmaler Sandwall (parallel zur Küste)
+  // eine flache Lagune vom Meer
+  function coastalLagoons(map, d, rng) {
+    const W = map.width, H = map.height, N = W * H, h = map.heights;
+    const unit = Math.min(W, H) / 750;
+    const noise = FMM.createNoise2D(rng);
+    // Abstand (Chamfer) von geeigneten Küstenzellen über flaches Meer
+    const dist = new Float32Array(N).fill(Infinity);
+    let any = false;
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const i = y * W + x;
+        if (h[i] < 0 || h[i] > 0.035 || d.coastDist[i] !== 0) continue;
+        if (d.latT[y] + d.tempA[i] < 0.5) continue;
+        // nur auf einigen Küstenabschnitten
+        if (FMM.fbm(noise, x / (90 * unit), y / (90 * unit), 3, 2, 0.5) < 0.22) continue;
+        dist[i] = 0;
+        any = true;
+      }
+    }
+    if (!any) return;
+    const ok = (j) => h[j] < 0 && h[j] > -0.09;
+    const D = Math.SQRT2;
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const i = y * W + x;
+        if (!ok(i)) continue;
+        const v = Math.min(dist[i], dist[i - 1] + 1, dist[i - W] + 1, dist[i - W - 1] + D, dist[i - W + 1] + D);
+        dist[i] = v;
+      }
+    }
+    for (let y = H - 2; y > 0; y--) {
+      for (let x = W - 2; x > 0; x--) {
+        const i = y * W + x;
+        if (!ok(i)) continue;
+        dist[i] = Math.min(dist[i], dist[i + 1] + 1, dist[i + W] + 1, dist[i + W + 1] + D, dist[i + W - 1] + D);
+      }
+    }
+    const off = 4.5 * unit, half = Math.max(0.75, 0.6 * unit);
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const i = y * W + x;
+        const v = dist[i];
+        if (!(v > 0) || v === Infinity || h[i] >= 0) continue;
+        if (v < off - half) h[i] = Math.max(h[i], -0.014); // Lagune
+        else if (v <= off + half) {
+          // Wall mit Durchlässen zum Meer
+          if (FMM.fbm(noise, x / (12 * unit) + 30, y / (12 * unit), 2, 2, 0.5) > 0.5) continue;
+          h[i] = 0.004 + FMM.hash2(x, y) * 0.004;
+        }
+      }
+    }
+  }
+
+  // Flussdeltas: große Flüsse an flachen Küsten schütten einen gelappten Schwemmfächer ins Meer
+  function riverDeltas(map, d, rng) {
+    const W = map.width, H = map.height, h = map.heights;
+    const unit = Math.min(W, H) / 750;
+    const T = d.riverThreshold;
+    const noise = FMM.createNoise2D(rng);
+    const done = new Set();
+    for (const path of d.rivers) {
+      const n = path.length;
+      const mouth = path[n - 1];
+      if (h[mouth] >= 0 || done.has(mouth) || n < 6) continue;
+      done.add(mouth);
+      const f = d.flux[path[n - 2]];
+      if (f < T * 18) continue;
+      // flaches Unterland
+      let flat = true;
+      for (let k = 2; k < Math.min(n, 12); k++) if (h[path[n - k]] > 0.05) { flat = false; break; }
+      if (!flat) continue;
+      // Fließrichtung an der Mündung
+      const a = path[Math.max(0, n - 8)];
+      let dx = (mouth % W) - (a % W), dy = ((mouth / W) | 0) - ((a / W) | 0);
+      const dl = Math.hypot(dx, dy) || 1;
+      dx /= dl; dy /= dl;
+      const R = Math.min(16, 4 + Math.sqrt(f / T) * 0.9) * unit;
+      const cx = (mouth % W) + dx * R * 0.15, cy = ((mouth / W) | 0) + dy * R * 0.15;
+      const ph = rng() * 10;
+      for (let y = Math.max(1, Math.floor(cy - R * 1.3)); y <= Math.min(H - 2, Math.ceil(cy + R * 1.3)); y++) {
+        for (let x = Math.max(1, Math.floor(cx - R * 1.3)); x <= Math.min(W - 2, Math.ceil(cx + R * 1.3)); x++) {
+          const i = y * W + x;
+          if (h[i] >= 0 || h[i] < -0.15) continue;
+          const rx = x - cx, ry = y - cy;
+          const along = rx * dx + ry * dy, across = -rx * dy + ry * dx;
+          if (along < -R * 0.2) continue;
+          // gelappter Rand: mehrere Mündungsarme schieben Zungen vor
+          const ang = Math.atan2(across, along);
+          const lobe = 0.75 + 0.25 * Math.cos(ang * 5 + ph) + 0.15 * noise(x / (3 * unit), y / (3 * unit));
+          const dd = Math.hypot(along, across * 1.15) / (R * lobe);
+          if (dd < 1) h[i] = 0.0008 + 0.0025 * (1 - dd); // flach, damit sich keine Seen stauen
+          else if (dd < 1.5) h[i] = Math.max(h[i], -0.012 * (dd - 0.9) / 0.6);
         }
       }
     }
@@ -400,9 +651,10 @@
       // keine Seen auf Gipfeln: nur in tieferen Lagen
       if (comp.length >= minLake && comp.length <= maxLake && h[comp[0]] < 0.32) comps.push(comp);
     }
-    // zufällige Auswahl, bevorzugt tiefer gelegene Seen
-    comps.sort((a, b) => h[a[0]] - h[b[0]] + rng.range(-0.3, 0.3));
-    const maxLakes = Math.round(4 + N / 120000);
+    // zufällige Auswahl, bevorzugt tiefer gelegene Seen und Endseen in Trockengebieten (Salzseen)
+    const dry = (c) => (map.moisture[c[0]] < 0.3 ? 0.35 : 0);
+    comps.sort((a, b) => h[a[0]] - dry(a) - h[b[0]] + dry(b) + rng.range(-0.3, 0.3));
+    const maxLakes = Math.round(4 + N / 120000) + Math.min(3, comps.filter((c) => dry(c) > 0).length);
     for (const comp of comps.slice(0, maxLakes)) for (const c of comp) keep[c] = 1;
     for (let i = 0; i < N; i++) if (h[i] >= 0 && !keep[i] && filled[i] > h[i]) h[i] = filled[i];
   }
@@ -412,7 +664,7 @@
     const h = map.heights[i];
     if (h < 0 || d.lake[i]) return -1;
     const W = map.width;
-    const t = FMM.cellTemp(d.latT[(i / W) | 0], h);
+    const t = FMM.cellTemp(d.latT[(i / W) | 0], h, d.tempA[i]);
     if (h > 0.62 || t < 0.12) return -1;
     let s = 1 - h * 1.3;
     s -= Math.abs(t - 0.58) * 1.1;
@@ -540,7 +792,7 @@
     map.cities = [];
     const seeds = [];
     capitals.forEach((c, k) => {
-      const t = FMM.cellTemp(d.latT[c.y], map.heights[c.i]);
+      const t = FMM.cellTemp(d.latT[c.y], map.heights[c.i], d.tempA[c.i]);
       const culture = p.culture && p.culture !== 'gemischt' ? p.culture : cultureFor(rng, t);
       const id = k + 1;
       const stateName = names.name(culture);
@@ -668,6 +920,7 @@
       cities: [],
       labels: [],
       pois: [],
+      walls: [],
     };
     map.heights = generateHeights(p, rng);
     const d0 = { latT: FMM.Derive.latitudeTemps(map) };
@@ -677,13 +930,18 @@
     map.biomeMap = new Uint8Array(map.width * map.height).fill(255);
     FMM.Derive.hydrology(map, d0);
     reduceLakes(map, d0, rng);
-    carveFjords(map, d0);
+    carveFjords(map, d0, rng);
+    FMM.Derive.coastDistance(map, d0);
+    coastalLagoons(map, d0, rng);
+    riverDeltas(map, d0, rng);
     const d = FMM.Derive.all(map);
     const names = new FMM.NameGen(rng);
     generatePolitics(map, d, rng, p, names);
     map.labels = generateSeaLabels(map, d, rng, names);
+    map.walls = FMM.generateWalls ? FMM.generateWalls(map, d, rng, names) : [];
     map.labels.push(...FMM.generateRegionLabels(map, d, rng));
     map.pois = FMM.generatePois(map, d, rng);
+    if (FMM.generateDecoLabels) map.labels.push(...FMM.generateDecoLabels(map, d, rng));
     return map;
   };
 
@@ -702,9 +960,9 @@
   };
 
   FMM.STYLE_PRESETS = {
-    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true, symbols: false, cartouche: false, frame: false, pois: true },
-    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true, symbols: false, cartouche: false, frame: false, pois: false },
-    fantasy: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: false, roads: true, symbols: true, cartouche: true, frame: true, pois: true },
-    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true, symbols: true, cartouche: true, frame: true, pois: true },
+    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true, symbols: false, cartouche: false, frame: false, pois: true, currents: false, seaSymbols: false, seaRoutes: false, settlements: false },
+    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true, symbols: false, cartouche: false, frame: false, pois: false, currents: false, seaSymbols: false, seaRoutes: true, settlements: false },
+    fantasy: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: false, roads: true, symbols: true, cartouche: true, frame: true, pois: true, currents: false, seaSymbols: true, seaRoutes: true, settlements: true },
+    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true, symbols: true, cartouche: true, frame: true, pois: true, currents: false, seaSymbols: true, seaRoutes: true, settlements: true },
   };
 })();

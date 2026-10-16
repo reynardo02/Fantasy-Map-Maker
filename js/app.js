@@ -178,9 +178,9 @@
       const btns = $('shapeButtons');
       btns.innerHTML = '';
       const add = (text, fn, cls) => { const b = document.createElement('button'); b.textContent = text; if (cls) b.className = cls; b.onclick = fn; btns.appendChild(b); };
-      if (sh && sh.kind === 'range') {
-        $('shapeTitle').textContent = 'Gebirgslinie';
-        $('shapeInfo').textContent = `${sh.pts.length} Punkt(e). Weitere Punkte klicken, Doppelklick oder Enter schließt ab. Breite und Höhe folgen den Pinsel-Reglern.`;
+      if (sh && (sh.kind === 'range' || sh.kind === 'wall')) {
+        $('shapeTitle').textContent = sh.kind === 'wall' ? 'Mauer' : 'Gebirgslinie';
+        $('shapeInfo').textContent = `${sh.pts.length} Punkt(e). Weitere Punkte klicken, Doppelklick oder Enter schließt ab.` + (sh.kind === 'wall' ? '' : ' Breite und Höhe folgen den Pinsel-Reglern.');
         add('✔ Fertig', () => ed.finishShape(), 'primary');
         add('Abbrechen', () => ed.cancelShape());
       } else if (sh && sh.kind === 'move') {
@@ -216,6 +216,9 @@
       item('🔤 Text hier', () => this.addLabel(m.x, m.y));
       item('sep');
       item('🗻 Gebirge von hier', () => { ed.setTool('range'); ed.shape = { kind: 'range', pts: [[m.x, m.y]] }; this.renderShapeCard(); ed.requestDraw(); });
+      item('🧱 Mauer von hier', () => { ed.setTool('range'); ed.shape = { kind: 'wall', pts: [[m.x, m.y]] }; this.renderShapeCard(); ed.requestDraw(); });
+      const wall = this.wallAt(m.x, m.y);
+      if (wall) item('🧱 Mauer entfernen', () => this.removeWall(wall.id));
       if (onLand) item('🧭 Landmasse verschieben', () => { ed.setTool('move'); ed.shapeDown({ detail: 1 }, m); ed.pointer = null; });
       item('🎲 Umgebung neu würfeln', () => {
         const R = Math.min(map.width, map.height) * 0.12, poly = [];
@@ -224,6 +227,53 @@
         this.rerollRegion(poly);
       });
       this.showMenu(menu, items, clientX, clientY);
+    },
+
+    // ---------- Mauern ----------
+    wallAt(x, y) {
+      const unit = Math.min(this.map.width, this.map.height) / 750;
+      const r = 6 * unit / Math.max(1, this.editor.view.scale / 2);
+      return (this.map.walls || []).find((w) => {
+        for (let k = 0; k + 3 < w.pts.length; k += 2) {
+          const ax = w.pts[k], ay = w.pts[k + 1], bx = w.pts[k + 2], by = w.pts[k + 3];
+          const l2 = (bx - ax) ** 2 + (by - ay) ** 2 || 1;
+          const t = FMM.clamp(((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / l2, 0, 1);
+          if (Math.hypot(ax + (bx - ax) * t - x, ay + (by - ay) * t - y) < r) return true;
+        }
+        return false;
+      });
+    },
+
+    addWall(points) {
+      const map = this.map;
+      this.history.push();
+      // gleichmäßig unterteilen, damit die Türme regelmäßig stehen
+      const unit = Math.min(map.width, map.height) / 750, pts = [];
+      for (let k = 0; k < points.length - 1; k++) {
+        const [ax, ay] = points[k], [bx, by] = points[k + 1];
+        const n = Math.max(1, Math.round(Math.hypot(bx - ax, by - ay) / (4 * unit)));
+        for (let j = 0; j < n; j++) pts.push(+(ax + ((bx - ax) * j) / n).toFixed(1), +(ay + ((by - ay) * j) / n).toFixed(1));
+      }
+      const last = points[points.length - 1];
+      pts.push(+last[0].toFixed(1), +last[1].toFixed(1));
+      if (!map.walls) map.walls = [];
+      map.walls.push({ id: FMM.uid(), pts, name: '' });
+      if (!map.view.layers.settlements) { map.view.layers.settlements = true; this.syncUi(); }
+      this.renderer.invalidateSymbols();
+      this.editor.requestDraw();
+      this.changed();
+      this.toast('Mauer gebaut');
+    },
+
+    removeWall(id) {
+      const map = this.map;
+      this.history.push();
+      map.walls = (map.walls || []).filter((w) => w.id !== id);
+      map.labels = map.labels.filter((l) => l.wall !== id);
+      this.renderer.invalidateSymbols();
+      this.editor.requestDraw();
+      this.changed();
+      this.toast('Mauer entfernt');
     },
 
     openPoiSubmenu(clientX, clientY, m) {
@@ -1035,13 +1085,14 @@
           this.changed();
         };
       } else if (s.type === 'label') {
-        $('selTitle').textContent = obj.kind === 'sea' ? 'Meeresname' : obj.kind === 'river' ? 'Flussname' : obj.kind === 'region' ? 'Landschaftsname' : 'Beschriftung';
+        $('selTitle').textContent = obj.kind === 'sea' ? 'Meeresname' : obj.kind === 'river' ? 'Flussname' : obj.kind === 'region' ? (obj.wall ? 'Mauername' : 'Landschaftsname') : obj.kind === 'deko' ? 'Schmuckschrift' : 'Beschriftung';
         body.innerHTML = `<div class="form-grid">
           <span>Text</span><input id="selText" value="${esc(obj.text)}">
           ${obj.path ? '' : `<span>Stil</span><select id="selKind">
             <option value="custom" ${obj.kind === 'custom' && obj.font !== 'text' ? 'selected' : ''}>Titel (Kapitälchen)</option>
             <option value="text" ${obj.font === 'text' && obj.kind !== 'sea' ? 'selected' : ''}>Handschrift</option>
             <option value="sea" ${obj.kind === 'sea' ? 'selected' : ''}>Gewässer (kursiv)</option>
+            <option value="deko" ${obj.kind === 'deko' ? 'selected' : ''}>Schmuckschrift („Hier sind Drachen“)</option>
           </select>`}
           <span>Größe</span><input id="selSize" type="range" min="6" max="72" value="${obj.size || 16}">
           ${obj.path ? '' : `<span>Drehung</span><input id="selAngle" type="range" min="-90" max="90" value="${Math.round(((obj.angle || 0) * 180) / Math.PI)}">`}
@@ -1056,9 +1107,10 @@
         if (!obj.path) $('selKind').addEventListener('change', (e) => {
           this.history.push();
           const v = e.target.value;
-          obj.kind = v === 'sea' ? 'sea' : 'custom';
+          obj.kind = v === 'sea' ? 'sea' : v === 'deko' ? 'deko' : 'custom';
           obj.font = v === 'text' ? 'text' : undefined;
-          $('selTitle').textContent = obj.kind === 'sea' ? 'Meeresname' : 'Beschriftung';
+          if (v === 'deko') obj.water = this.map.heights[FMM.clamp(Math.floor(obj.y), 0, this.map.height - 1) * this.map.width + FMM.clamp(Math.floor(obj.x), 0, this.map.width - 1)] < 0;
+          $('selTitle').textContent = obj.kind === 'sea' ? 'Meeresname' : obj.kind === 'deko' ? 'Schmuckschrift' : 'Beschriftung';
           this.editor.requestDraw();
           this.changed();
         });

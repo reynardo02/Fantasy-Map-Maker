@@ -111,7 +111,7 @@
         let bi = map.biomeMap[i];
         if (bi === 255) {
           const slope = Math.hypot(Math.max(0, h[i + 1]) - Math.max(0, h[i - 1]), Math.max(0, h[i + W]) - Math.max(0, h[i - W])) * 40 * (W / 1200);
-          bi = FMM.classifyBiome(FMM.cellTemp(d.latT[y], v), map.moisture[i], v, slope, d.riverDist[i], 0, 0);
+          bi = FMM.classifyBiome(FMM.cellTemp(d.latT[y], v, d.tempA[i]), map.moisture[i], v, slope, d.riverDist[i], 0, 0);
         }
         if (FMM.isForest(bi)) cat[i] = 2;
         else if (bi === BI.wueste) cat[i] = 3;
@@ -173,6 +173,10 @@
       for (const cells of list) {
         const cl = FMM.regionCenterline(cells, W, 6 * unit);
         let text = sp.name(stateCulture(cl.cx, cl.cy));
+        if (k === 5) {
+          const c = cells[cells.length >> 1], cy = (c / W) | 0;
+          if (FMM.saltiness(map.moisture[c], FMM.cellTemp(d.latT[cy], h[c], d.tempA[c])) > 0.5) text = names.saltLakeName(stateCulture(cl.cx, cl.cy));
+        }
         if (sp.upper) text = text.toUpperCase();
         // Größe nach Fläche, aber so, dass der Text ungefähr in die Region passt
         let size = FMM.clamp(Math.sqrt(cells.length) * 0.16, 8, k === 1 ? 17 : 15) * unit;
