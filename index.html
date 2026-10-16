@@ -88,6 +88,9 @@
           <label>Anthropic-API-Schlüssel
             <input id="aiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
           </label>
+          <label>Workspace-ID <small>(optional, nur nötig wenn der Schlüssel keinem Workspace zugeordnet ist)</small>
+            <input id="aiWorkspace" type="text" placeholder="wrkspc_…" autocomplete="off" spellcheck="false">
+          </label>
           <p>Der Schlüssel bleibt nur in diesem Browser gespeichert und wird ausschließlich an <b>api.anthropic.com</b> gesendet. Jede Nachricht kostet je nach Umfang einige Cent über deinen Schlüssel. Einen Schlüssel bekommst du in der <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Anthropic Console</a>.</p>
           <p>Lehnt Claude eine Anfrage ab, übernimmt automatisch ein anderes Claude-Modell.</p>
           <div class="btn-row"><button id="aiKeySave" class="primary">Speichern</button><button id="aiKeyRemove">Schlüssel löschen</button></div>
