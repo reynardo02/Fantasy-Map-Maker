@@ -3,13 +3,44 @@
   'use strict';
   const FMM = window.FMM;
 
-  // Wasserfarben nach Tiefe
+  // Wasserfarben nach Tiefe (ruhiger, natürlicher Verlauf)
   const OCEAN_STOPS = [
-    [0, [104, 170, 192]],
-    [0.06, [70, 138, 172]],
-    [0.3, [40, 94, 142]],
-    [1, [16, 42, 84]],
+    [0, [96, 158, 178]],
+    [0.05, [62, 128, 162]],
+    [0.25, [34, 84, 132]],
+    [1, [14, 38, 78]],
   ];
+
+  // Natürliche Landfarbe: stufenlos aus Temperatur (Zeilen) und Feuchtigkeit (Spalten),
+  // angelehnt an Satellitenbilder – kein hartes Umschalten zwischen Landschaftstypen
+  const NAT_T = [-0.1, 0.15, 0.35, 0.55, 0.75, 0.95];
+  const NAT_M = [0, 0.3, 0.6, 1];
+  const NAT = [
+    [[226, 230, 232], [228, 232, 234], [230, 234, 236], [232, 236, 238]], // polar
+    [[156, 146, 122], [144, 140, 114], [120, 126, 98], [102, 114, 88]], // Tundra
+    [[170, 156, 120], [140, 142, 96], [86, 112, 66], [56, 86, 56]], // boreal
+    [[192, 174, 128], [158, 160, 96], [94, 132, 60], [60, 104, 46]], // gemäßigt
+    [[210, 186, 138], [184, 170, 104], [118, 140, 62], [54, 106, 42]], // warm
+    [[224, 198, 148], [202, 178, 112], [126, 144, 60], [40, 96, 38]], // heiß
+  ];
+  const NL = 96;
+  const NAT_LUT = new Uint8Array(NL * NL * 3);
+  (function () {
+    const pick = (arr, v) => { let k = 0; while (k < arr.length - 2 && v > arr[k + 1]) k++; return [k, FMM.clamp((v - arr[k]) / (arr[k + 1] - arr[k]), 0, 1)]; };
+    for (let ti = 0; ti < NL; ti++) {
+      const [a, fa] = pick(NAT_T, -0.1 + (ti / (NL - 1)) * 1.05);
+      const sa = fa * fa * (3 - 2 * fa);
+      for (let mi = 0; mi < NL; mi++) {
+        const [b, fb] = pick(NAT_M, mi / (NL - 1));
+        const sb = fb * fb * (3 - 2 * fb);
+        for (let c = 0; c < 3; c++) {
+          const v0 = FMM.lerp(NAT[a][b][c], NAT[a][b + 1][c], sb);
+          const v1 = FMM.lerp(NAT[a + 1][b][c], NAT[a + 1][b + 1][c], sb);
+          NAT_LUT[(ti * NL + mi) * 3 + c] = Math.round(FMM.lerp(v0, v1, sa));
+        }
+      }
+    }
+  })();
   const OCEAN_LUT = new Uint8Array(256 * 3);
   for (let i = 0; i < 256; i++) {
     const dpt = i / 255;
@@ -20,7 +51,7 @@
   }
 
   const STYLE = {
-    geo: { river: '#3473ab', riverAlpha: 0.92, text: '#1d1a16', halo: 'rgba(255,255,255,0.75)', sea: '#d8ecf5', seaHalo: 'rgba(20,50,80,0.55)', city: '#1d1a16', cityFill: '#ffffff', border: [120, 30, 30] },
+    geo: { river: '#3d76a6', riverAlpha: 0.85, text: '#1d1a16', halo: 'rgba(255,255,255,0.75)', sea: '#d8ecf5', seaHalo: 'rgba(20,50,80,0.55)', city: '#1d1a16', cityFill: '#ffffff', border: [120, 30, 30] },
     political: { river: '#4a80aa', riverAlpha: 0.9, text: '#2a221c', halo: 'rgba(250,246,236,0.85)', sea: '#356283', seaHalo: 'rgba(235,245,250,0.7)', city: '#2a221c', cityFill: '#ffffff', border: [70, 52, 48] },
     antique: { river: '#4f6878', riverAlpha: 0.9, text: '#3b2a18', halo: 'rgba(236,222,186,0.8)', sea: '#5a4a32', seaHalo: 'rgba(236,222,186,0.6)', city: '#3b2a18', cityFill: '#efe1bd', border: [120, 50, 40] },
   };
@@ -167,8 +198,10 @@
             const z = ocean ? zSea : zLand * (0.7 + hv * 0.9);
             const nx = -gx * z, ny = -gy * z;
             const len = Math.sqrt(nx * nx + ny * ny + 1);
-            const dot = (nx * lx + ny * ly + lz) / len;
-            shade = 1 + (dot / lz - 1) * reliefAmt * (ocean ? 0.6 : 1);
+            let dot = (nx * lx + ny * ly + lz) / len;
+            // weiche Zusatzbeleuchtung aus Westen für natürlichere, weniger harte Schatten
+            if (sty === 0 && !ocean) dot = dot * 0.72 + ((nx * -0.78 + 0.62) / len) * lz / 0.62 * 0.28;
+            shade = 1 + (dot / lz - 1) * reliefAmt * (ocean ? (sty === 0 ? 0.35 : 0.6) : 1);
             if (!ocean) shade *= 1 + FMM.clamp(cv * 5, -0.22, 0.14) * reliefAmt;
             if (shade < 0.3) shade = 0.3; else if (shade > maxShade) shade = maxShade;
           }
@@ -207,68 +240,73 @@
             }
             shade = 1 + (shade - 1) * 0.5;
           } else if (isLake) {
-            if (sty === 0) { r = 56; g = 110; b = 158; }
+            if (sty === 0) { r = 50; g = 102; b = 142; }
             else if (sty === 1) { r = 150; g = 192; b = 214; }
             else { r = 180; g = 170; b = 140; }
           } else {
             const t = FMM.cellTemp(lt, hv);
             if (sty === 0) {
-              // Landschaftsform bestimmen
               const slope = Math.sqrt(gx * gx + gy * gy) * slopeK;
               const v = veg[i00] * w00 + veg[i10] * w10 + veg[i01] * w01 + veg[i11] * w11;
               const fn = fine[i00] * w00 + fine[i10] * w10 + fine[i01] * w01 + fine[i11] * w11;
               const rdi = rdist[i00] * w00 + rdist[i10] * w10 + rdist[i01] * w01 + rdist[i11] * w11;
               const ov = bmap[i];
               const mI = moist[i00] * w00 + moist[i10] * w10 + moist[i01] * w01 + moist[i11] * w11;
-              let bi, bOther = -1;
-              if (ov !== 255) bi = ov;
-              else {
-                // weiche Übergänge: in der Grenzzone zweier Landschaften pixelweise mischen
-                // (einzelne Bäume vor dem Waldrand, Grasinseln, auslaufende Steppe)
-                const bLo = FMM.classifyBiome(t - 0.02, mI - 0.045, hv, slope, rdi, v, fn);
-                const bHi = FMM.classifyBiome(t + 0.02, mI + 0.045, hv, slope, rdi, v, fn);
-                if (bLo === bHi) bi = bLo;
-                else {
-                  const pick = FMM.hash2(X + 17, Y * 3 + 5) * 0.55 + (fn * 0.5 + 0.5) * 0.45;
-                  bi = pick < 0.5 ? bLo : bHi;
-                  bOther = bi === bLo ? bHi : bLo;
-                }
-              }
+              // Landschaftstyp (für Legende, Anzeige und Symbole)
+              const bi = ov !== 255 ? ov : FMM.classifyBiome(t, mI, hv, slope, rdi, v, fn);
               biome[i] = bi;
-              const c = FMM.BIOMES[bi].color;
-              r = c[0]; g = c[1]; b = c[2];
-              if (bOther >= 0 && !forest[bi]) {
-                const oc = FMM.BIOMES[bOther].color;
-                r += (oc[0] - r) * 0.28; g += (oc[1] - g) * 0.28; b += (oc[2] - b) * 0.28;
+              const treeline = 0.46 + v * 0.05;
+              let canopy;
+              if (ov !== 255) {
+                // von Hand gemalte Landschaft: deren Farbe, aber gleiche natürliche Struktur
+                const c = FMM.BIOMES[ov].color;
+                r = c[0]; g = c[1]; b = c[2];
+                canopy = forest[ov] ? 1 : 0;
+              } else {
+                // natürliche Farbe stufenlos aus Temperatur und Feuchte (Flusstäler etwas grüner)
+                const wet = FMM.clamp(mI + v * 0.12 + (rdi < 6 ? (6 - rdi) * 0.03 : 0), 0, 1);
+                const ti = FMM.clamp(((t + 0.1) / 1.05) * (NL - 1), 0, NL - 1) | 0;
+                const k = (ti * NL + ((wet * (NL - 1)) | 0)) * 3;
+                r = NAT_LUT[k]; g = NAT_LUT[k + 1]; b = NAT_LUT[k + 2];
+                // Walddichte als gleitender Wert: feucht genug, warm genug, unter der Baumgrenze
+                canopy = FMM.smoothstep(0.5, 0.78, wet + fn * 0.04) * FMM.smoothstep(0.12, 0.3, t) *
+                  (1 - FMM.smoothstep(treeline - 0.06, treeline + 0.04, hv));
+                // Trockengebiete: Sandtöne mit leichten Dünen
+                const dry = FMM.smoothstep(0.3, 0.12, wet) * FMM.smoothstep(0.5, 0.72, t);
+                if (dry > 0) { const kd = 1 + 0.045 * dry * Math.sin(fx * 0.55 + fy * 0.2 + v * 18); r *= kd; g *= kd; b *= kd; }
+                // Feuchtgebiete in flachen Niederungen
+                if (hv < 0.07 && slope < 0.25 && wet > 0.78 && t > 0.3) {
+                  const f = FMM.smoothstep(0.78, 0.95, wet) * (1 - hv / 0.07) * 0.6;
+                  r += (84 - r) * f; g += (98 - g) * f; b += (72 - b) * f;
+                  if (fn > 0.35) { r += (72 - r) * f * 0.8; g += (106 - g) * f * 0.8; b += (118 - b) * f * 0.8; }
+                }
+                // Polareis
+                const ice = FMM.smoothstep(-0.02, -0.1, t + v * 0.02);
+                if (ice > 0) { r += (232 - r) * ice; g += (236 - g) * ice; b += (240 - b) * ice; }
               }
-              if (forest[bi]) {
-                // Baumkronen: weiche Struktur + einzelne Kronen/Lücken, leichte Farbvariation im Laubwald
-                let k = 0.82 + fn * 0.22;
-                const hh = FMM.hash2(X, Y);
-                if (hh > 0.8) k *= 0.8; else if (hh < 0.1) k *= 1.1;
-                if (bi === BI.wald) { const q = FMM.clamp(0.5 + v, 0, 1) * 0.3; r += (104 - r) * q; g += (128 - g) * q; b += (58 - b) * q; }
+              // Kronendach: dunkler, mit feiner, weicher Struktur
+              if (canopy > 0) {
+                const k = 1 - canopy * (0.16 + 0.14 * (fn * 0.5 + 0.5));
+                r *= k * 0.96; g *= k * 1.02; b *= k * 0.96;
+              } else {
+                const k = 0.97 + v * 0.04 + fn * 0.02;
                 r *= k; g *= k; b *= k;
-              } else if (bi === BI.wueste) {
-                const k = 0.95 + 0.06 * Math.sin(fx * 0.55 + fy * 0.2 + v * 18); // Dünen
-                r *= k; g *= k; b *= k;
-              } else if (bi === BI.sumpf) {
-                if (fn > 0.3) { r = (r + 70) / 2; g = (g + 108) / 2; b = (b + 124) / 2; } // Wasserlachen
-              } else if (bi === BI.savanne) {
-                if (fn > 0.5) { r *= 0.62; g *= 0.7; b *= 0.55; } // Baumgruppen
-              } else if (bi === BI.fels) {
-                // Gesteinsschichten
-                const k = 0.9 + fn * 0.08 + 0.05 * Math.sin(hv * 90 + v * 6);
-                r *= k; g *= k; b *= k;
-              } else if (bi !== BI.gletscher) {
-                const k = 0.95 + v * 0.07 + fn * 0.03;
-                r *= k; g *= k; b *= k;
+              }
+              // Hochlagen: oberhalb der Baumgrenze alpine Matten, darüber und an Steilhängen Fels
+              const alp = FMM.smoothstep(treeline - 0.03, treeline + 0.1, hv);
+              if (alp > 0) { const f = alp * 0.55; r += (140 - r) * f; g += (138 - g) * f; b += (106 - b) * f; }
+              const rock = Math.max(FMM.smoothstep(0.58, 0.82, hv + v * 0.04), FMM.smoothstep(1.0, 1.9, slope) * FMM.smoothstep(0.28, 0.45, hv));
+              if (rock > 0) {
+                const kr = 0.92 + fn * 0.06 + 0.04 * Math.sin(hv * 90 + v * 6); // Gesteinsschichten
+                const f = rock * 0.85;
+                r += (128 * kr - r) * f; g += (119 * kr - g) * f; b += (106 * kr - b) * f;
               }
               // Schneegrenze abhängig vom Breitengrad: im Kalten tiefer, im Warmen höher.
               // Grate (positive Krümmung) tragen mehr Schnee, Täler weniger.
               const snowLine = FMM.clamp(0.58 + (lt - 0.3) * 0.7, 0.36, 0.95);
-              const snow = ov !== 255 && bi !== BI.fels ? 0
-                : FMM.smoothstep(snowLine + 0.03, snowLine + 0.17, hv + cv * 3.5 + v * 0.03) * (bi === BI.fels ? 1 : 0.8);
-              if (snow > 0 && bi !== BI.gletscher) { r += (244 - r) * snow; g += (247 - g) * snow; b += (250 - b) * snow; }
+              const snow = ov !== 255 && ov !== BI.fels ? 0
+                : FMM.smoothstep(snowLine + 0.03, snowLine + 0.17, hv + cv * 3.5 + v * 0.03);
+              if (snow > 0) { r += (244 - r) * snow; g += (247 - g) * snow; b += (250 - b) * snow; }
               // Küsten: Steilküste mit dunklen Klippen, flache Küste mit Sandstrand
               const cdl = cd[i00] * w00 + cd[i10] * w10 + cd[i01] * w01 + cd[i11] * w11;
               if (cdl < 2.5 && slope > 0.5) {
@@ -312,7 +350,7 @@
           }
 
           // feines Korn
-          const grain = (FMM.hash2(X, Y) - 0.5) * (sty === 0 ? 6 : 8);
+          const grain = (FMM.hash2(X, Y) - 0.5) * (sty === 0 ? 3 : 8);
           const o = (Y * PW + X) * 4;
           px[o] = r + grain;
           px[o + 1] = g + grain;
@@ -437,13 +475,14 @@
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         if (sty === 'geo') {
-          ctx.strokeStyle = 'rgba(225,242,240,0.35)';
-          ctx.lineWidth = 2.4 * unit;
+          // dezente Brandungslinie statt harter Kontur
+          ctx.strokeStyle = 'rgba(228,244,242,0.28)';
+          ctx.lineWidth = 2 * unit;
           ctx.stroke(cc.coast);
-          ctx.strokeStyle = 'rgba(28,48,58,0.6)';
-          ctx.lineWidth = 0.75 * unit;
+          ctx.strokeStyle = 'rgba(30,52,60,0.32)';
+          ctx.lineWidth = 0.6 * unit;
           ctx.stroke(cc.coast);
-          ctx.strokeStyle = 'rgba(28,48,58,0.45)';
+          ctx.strokeStyle = 'rgba(30,52,60,0.3)';
           ctx.lineWidth = 0.6 * unit;
           ctx.stroke(cc.lakes);
         } else {
@@ -463,7 +502,7 @@
         ctx.lineJoin = 'round';
         const rc = this.riverCache;
         for (let k = 0; k < rc.buckets.length; k++) {
-          ctx.lineWidth = rc.widths[k] * (map.view.style === 'geo' ? 1.35 : 1);
+          ctx.lineWidth = rc.widths[k] * (map.view.style === 'geo' ? 1.1 : 1);
           ctx.stroke(rc.buckets[k]);
         }
         ctx.globalAlpha = 1;

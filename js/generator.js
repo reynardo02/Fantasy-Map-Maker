@@ -258,9 +258,7 @@
         const f = 1 - k / L;
         const depth = -0.005 - 0.07 * f;
         const rad = 1.1 + 2.2 * f;
-        // leicht gewunden: Mittellinie seitlich versetzen
-        const wob = Math.sin(k * 0.45 + mouth) * 1.2;
-        const cx = (c % W) + Math.round(wob * (k % 2 ? 1 : 0)), cy = ((c / W) | 0) + Math.round(wob * (k % 2 ? 0 : 1));
+        const cx = c % W, cy = (c / W) | 0;
         for (let dy = -3; dy <= 3; dy++) {
           for (let dx = -3; dx <= 3; dx++) {
             const dist = Math.hypot(dx, dy);
