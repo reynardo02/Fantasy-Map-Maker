@@ -4,24 +4,32 @@
   'use strict';
   const FMM = window.FMM;
 
+  // Klimazonen als Breitengrad-Bereich der Karte (oben → unten, Süden negativ)
   const CLIMATES = {
-    gemaessigt: { label: 'Gemäßigt (kalt im Norden)', top: 0.12, bottom: 0.85 },
-    kalt: { label: 'Kalt / Eiszeit', top: -0.05, bottom: 0.55 },
-    warm: { label: 'Warm / Tropisch', top: 0.38, bottom: 1.05 },
-    aequator: { label: 'Äquator in der Mitte', equator: true },
-    sued: { label: 'Südhalbkugel (kalt im Süden)', top: 0.85, bottom: 0.05 },
+    gemaessigt: { label: 'Gemäßigt (70°–25° N)', latTop: 70, latBottom: 25 },
+    kalt: { label: 'Kalt (85°–45° N)', latTop: 85, latBottom: 45 },
+    warm: { label: 'Warm / Tropisch (50° N – Äquator)', latTop: 50, latBottom: 0 },
+    aequator: { label: 'Äquator in der Mitte (72° N – 72° S)', latTop: 72, latBottom: -72 },
+    sued: { label: 'Südhalbkugel (25°–75° S)', latTop: -25, latBottom: -75 },
   };
   FMM.CLIMATES = CLIMATES;
 
-  // Grundtemperatur (0 = eisig, 1 = heiß) pro Zeile
-  function latitudeTemps(map) {
+  // Geografische Breite in Grad pro Zeile
+  function latitudes(map) {
     const H = map.height;
     const c = CLIMATES[map.settings.climate] || CLIMATES.gemaessigt;
-    const t = new Float32Array(H);
-    for (let y = 0; y < H; y++) {
-      const v = y / (H - 1);
-      t[y] = c.equator ? 1.02 - Math.abs(v - 0.5) * 2 * 0.95 : c.top + (c.bottom - c.top) * v;
-    }
+    const lat = new Float32Array(H);
+    for (let y = 0; y < H; y++) lat[y] = c.latTop + (c.latBottom - c.latTop) * (y / (H - 1));
+    return lat;
+  }
+
+  // Grundtemperatur aus der Breite (1 ≈ Äquator, 0,6 ≈ 40°, 0,25 ≈ 65°, < 0 polar)
+  FMM.latToTemp = (lat) => 1.0 - 1.15 * Math.pow(Math.min(90, Math.abs(lat)) / 90, 1.3);
+
+  function latitudeTemps(map) {
+    const lat = latitudes(map);
+    const t = new Float32Array(lat.length);
+    for (let y = 0; y < lat.length; y++) t[y] = FMM.latToTemp(lat[y]);
     return t;
   }
 
@@ -322,6 +330,7 @@
 
   FMM.Derive = {
     latitudeTemps,
+    latitudes,
     hydrology,
     coastDistance,
     politics,

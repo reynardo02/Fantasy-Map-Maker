@@ -12,18 +12,29 @@
     sued: 'Südwind',
   };
 
-  // Anteil des Passats (Ostwind) nach Breite: Westwinde in kühlen/mittleren Breiten, Passat in warmen.
-  // Kein harter Wechsel – beide Windsysteme gehen über einen breiten Gürtel ineinander über.
-  function tradeShare(latT) {
-    return FMM.smoothstep(0.5, 0.74, latT);
+  // Anteil der Ostwinde nach Breite (Grad): Passat bis ~30°, Westwinde bis ~60°, polare Ostwinde darüber.
+  // Kein harter Wechsel – die Windsysteme gehen über breite Gürtel ineinander über.
+  function eastShare(lat) {
+    const a = Math.abs(lat);
+    return 1 - FMM.smoothstep(24, 36, a) + FMM.smoothstep(56, 66, a);
   }
 
+  // Niederschlag nach globaler Zirkulation: feuchte innertropische Konvergenzzone, trockenes
+  // Subtropenhoch (Wüstengürtel um 25°), feuchte Westwindfronten, trockene Polargebiete
+  function circulation(lat) {
+    const a = Math.abs(lat);
+    const g = (c, w) => Math.exp(-((a - c) / w) * ((a - c) / w));
+    return 1 + 0.45 * g(0, 9) - 0.6 * g(26, 8) + 0.15 * g(52, 10) - 0.45 * FMM.smoothstep(62, 80, a);
+  }
+  FMM.circulation = circulation;
+
   // Version der Niederschlagsberechnung; ältere gespeicherte Karten werden beim Laden neu berechnet
-  FMM.MOISTURE_VERSION = 2;
+  FMM.MOISTURE_VERSION = 3;
 
   FMM.computeMoisture = function (map) {
     const W = map.width, H = map.height, N = W * H, h = map.heights;
     const latT = FMM.Derive.latitudeTemps(map);
+    const lat = FMM.Derive.latitudes(map);
     const setting = map.settings.wind || 'auto';
     map.settings.moistureV = FMM.MOISTURE_VERSION;
     const precip = new Float32Array(N);
@@ -47,7 +58,9 @@
         if (rain > q) rain = q;
         q -= rain;
         precip[i] += rain * (wt ? wt[k] : 1);
-        q += rain * 0.55; // Verdunstung über Land (Pflanzen, Böden)
+        // Rückverdunstung über Land (Pflanzen, Böden): in den Tropen stark (Regenwald hält sich selbst feucht),
+        // in kühlen Breiten schwächer → trockenes Inland großer Kontinente
+        q += rain * (0.42 + 0.45 * warmth);
         if (q > 1) q = 1;
         prev = v;
       }
@@ -55,16 +68,24 @@
 
     const line = [];
     const wt = new Float32Array(Math.max(W, H));
+    const share = new Float32Array(W);
     for (let y = 0; y < H; y++) {
       const warmth = FMM.clamp(latT[y], 0, 1);
       if (setting === 'auto') {
-        // Grenze der Windgürtel leicht gewellt statt entlang eines Breitengrades
-        const share = (x) => tradeShare(latT[y] + FMM.fbm(noise, x / H * 3 + 50, y / H * 3, 3, 2, 0.5) * 0.08);
+        // Grenze der Windgürtel leicht gewellt (±4°) statt entlang eines Breitengrades; Rauschen grob abgetastet
+        for (let x = 0; x < W; x += 8) {
+          const v = eastShare(lat[y] + FMM.fbm(noise, x / H * 3 + 50, y / H * 3, 3, 2, 0.5) * 8);
+          for (let k = 0; k < 8 && x + k < W; k++) share[x + k] = v;
+        }
+        for (let x = 0; x < W - 8; x += 8) {
+          const a = share[x], b = share[x + 8];
+          for (let k = 1; k < 8; k++) share[x + k] = a + ((b - a) * k) / 8;
+        }
         line.length = 0;
-        for (let x = 0; x < W; x++) { line.push(y * W + x); wt[x] = 1 - share(x); }
+        for (let x = 0; x < W; x++) { line.push(y * W + x); wt[x] = 1 - share[x]; }
         march(line, warmth, wt);
         line.length = 0;
-        for (let x = 0; x < W; x++) { line.push(y * W + W - 1 - x); wt[x] = share(W - 1 - x); }
+        for (let x = 0; x < W; x++) { line.push(y * W + W - 1 - x); wt[x] = share[W - 1 - x]; }
         march(line, warmth, wt);
       } else if (setting === 'west' || setting === 'ost') {
         line.length = 0;
@@ -78,6 +99,12 @@
         for (let y = 0; y < H; y++) line.push((setting === 'nord' ? y : H - 1 - y) * W + x);
         march(line, 0.5);
       }
+    }
+
+    // globale Zirkulation: Regen je Breitengürtel verstärken bzw. unterdrücken
+    for (let y = 0; y < H; y++) {
+      const c = circulation(lat[y]);
+      for (let x = 0, i = y * W; x < W; x++, i++) precip[i] *= c;
     }
 
     // Glätten (Luftmassen sind breiter als eine Zeile); drei Durchgänge ≈ Gaußfilter ohne Kanten
