@@ -138,6 +138,131 @@
       }
     },
 
+    // ---------- Formen („Skizze → Gelände“), auch vom KI-Assistenten genutzt ----------
+    // fn(map) ändert die Karte und gibt { rect, wasWater } zurück; alles ist ein einziger Undo-Schritt
+    applySculpt(label, fn, opts) {
+      opts = opts || {};
+      const map = this.map;
+      if (!opts.noHistory) this.history.push();
+      this.history.newVersion('terrain');
+      this.history.newVersion('biome');
+      this.history.newVersion('state');
+      let res;
+      try {
+        res = fn(map) || {};
+      } catch (e) {
+        console.error(e);
+        if (!opts.quiet) this.toast('Nicht möglich: ' + e.message);
+        throw e;
+      }
+      this.renderer.biomeCount = null;
+      this.afterTerrainEdit(res.wasWater || null);
+      if (label && !opts.quiet) this.toast(label);
+      return res;
+    },
+
+    rerollRegion(poly) {
+      const big = this.map.width * this.map.height > 2e6;
+      this.busy(true, big ? 'Würfle Region neu … (große Karte, dauert etwas)' : 'Würfle Region neu …');
+      setTimeout(() => {
+        try { this.applySculpt('Region neu gewürfelt', (map) => FMM.Sculpt.rerollRegion(map, poly)); } catch (e) { /* Meldung bereits gezeigt */ }
+        this.busy(false);
+        this.renderShapeCard();
+      }, 30);
+    },
+
+    // Hinweiskarte für laufende Formen (Gebirgslinie, Verschieben, Neu würfeln)
+    renderShapeCard() {
+      const ed = this.editor, sh = ed.shape, card = $('shapeCard');
+      const btns = $('shapeButtons');
+      btns.innerHTML = '';
+      const add = (text, fn, cls) => { const b = document.createElement('button'); b.textContent = text; if (cls) b.className = cls; b.onclick = fn; btns.appendChild(b); };
+      if (sh && sh.kind === 'range') {
+        $('shapeTitle').textContent = 'Gebirgslinie';
+        $('shapeInfo').textContent = `${sh.pts.length} Punkt(e). Weitere Punkte klicken, Doppelklick oder Enter schließt ab. Breite und Höhe folgen den Pinsel-Reglern.`;
+        add('✔ Fertig', () => ed.finishShape(), 'primary');
+        add('Abbrechen', () => ed.cancelShape());
+      } else if (sh && sh.kind === 'move') {
+        $('shapeTitle').textContent = 'Landmasse verschieben';
+        $('shapeInfo').textContent = 'Ziehen verschiebt, Mausrad dreht, Shift+Mausrad skaliert. Städte, Orte und Namen wandern mit.';
+        add('✔ Übernehmen', () => ed.finishShape(), 'primary');
+        add('Abbrechen', () => ed.cancelShape());
+      } else if (ed.tool === 'reroll' && ed.lastReroll) {
+        $('shapeTitle').textContent = 'Neu würfeln';
+        $('shapeInfo').textContent = 'Gefällt das Ergebnis nicht? Dieselbe Region noch einmal würfeln oder mit Strg+Z zurück.';
+        add('🎲 Nochmal', () => { this.history.undo(); this.rerollRegion(ed.lastReroll); }, 'primary');
+      } else {
+        card.hidden = true;
+        return;
+      }
+      card.hidden = false;
+    },
+
+    // ---------- Rechtsklick-Menü ----------
+    openContextMenu(clientX, clientY, m) {
+      const menu = $('ctxMenu');
+      const ed = this.editor, map = this.map;
+      const hit = ed.hitTest(m.x, m.y, ['city', 'poi', 'label', 'state']);
+      const items = [];
+      const item = (text, fn, cls) => items.push({ text, fn, cls });
+      if (hit) {
+        item('✏️ Umbenennen', () => { this.select(hit); this.focusName(); });
+        item('sep');
+      }
+      const onLand = map.heights[FMM.clamp(Math.floor(m.y), 0, map.height - 1) * map.width + FMM.clamp(Math.floor(m.x), 0, map.width - 1)] >= 0;
+      if (onLand) item('🏰 Stadt hier', () => this.addCity(m.x, m.y));
+      item('🗿 Ort hier …', () => this.openPoiSubmenu(clientX, clientY, m));
+      item('🔤 Text hier', () => this.addLabel(m.x, m.y));
+      item('sep');
+      item('🗻 Gebirge von hier', () => { ed.setTool('range'); ed.shape = { kind: 'range', pts: [[m.x, m.y]] }; this.renderShapeCard(); ed.requestDraw(); });
+      if (onLand) item('🧭 Landmasse verschieben', () => { ed.setTool('move'); ed.shapeDown({ detail: 1 }, m); ed.pointer = null; });
+      item('🎲 Umgebung neu würfeln', () => {
+        const R = Math.min(map.width, map.height) * 0.12, poly = [];
+        for (let k = 0; k < 16; k++) poly.push([m.x + Math.cos((k / 16) * Math.PI * 2) * R, m.y + Math.sin((k / 16) * Math.PI * 2) * R]);
+        ed.lastReroll = poly;
+        this.rerollRegion(poly);
+      });
+      this.showMenu(menu, items, clientX, clientY);
+    },
+
+    openPoiSubmenu(clientX, clientY, m) {
+      const items = Object.entries(FMM.POI_TYPES).map(([k, name]) => ({ text: name, cls: 'sub', fn: () => { this.newPoiType = k; this.addPoi(m.x, m.y); } }));
+      this.showMenu($('ctxMenu'), items, clientX, clientY);
+    },
+
+    showMenu(menu, items, clientX, clientY) {
+      menu.innerHTML = '';
+      for (const it of items) {
+        if (it.text === 'sep') { const d = document.createElement('div'); d.className = 'sep'; menu.appendChild(d); continue; }
+        const b = document.createElement('button');
+        b.textContent = it.text;
+        if (it.cls) b.className = it.cls;
+        b.onclick = (e) => { e.stopPropagation(); this.closeContextMenu(); it.fn(); };
+        menu.appendChild(b);
+      }
+      menu.hidden = false;
+      const r = menu.getBoundingClientRect();
+      menu.style.left = Math.min(clientX, window.innerWidth - r.width - 8) + 'px';
+      menu.style.top = Math.min(clientY, window.innerHeight - r.height - 8) + 'px';
+      if (!this.menuCloser) {
+        this.menuCloser = (e) => { if (!$('ctxMenu').contains(e.target)) this.closeContextMenu(); };
+        document.addEventListener('pointerdown', this.menuCloser, true);
+      }
+    },
+
+    closeContextMenu() {
+      const menu = $('ctxMenu');
+      if (menu) menu.hidden = true;
+    },
+
+    // Namensfeld der Auswahl fokussieren (Doppelklick / „Umbenennen“)
+    focusName() {
+      setTimeout(() => {
+        const inp = $('selName') || $('selText');
+        if (inp) { inp.focus(); inp.select(); }
+      }, 0);
+    },
+
     afterBiomeEdit() {
       this.renderer.biomeCount = null;
       this.renderer.invalidateSymbols();
@@ -152,6 +277,7 @@
     },
 
     onToolChanged(tool) {
+      this.renderShapeCard();
       $('poiCard').hidden = tool !== 'poi';
       if (tool === 'poi' && this.map) this.renderPoiList();
       $('biomeCard').hidden = tool !== 'biome';

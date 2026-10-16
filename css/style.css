@@ -153,6 +153,11 @@ input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid v
 .state-list li.none .nm { font-style: italic; color: var(--muted); }
 .biome-list { max-height: none; }
 .poi-ico { width: 25px; height: 20px; flex: none; }
+.ctx-menu { position: fixed; z-index: 50; min-width: 190px; background: var(--panel, #23262d); border: 1px solid var(--line, #3a3f48); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); font-size: 13px; }
+.ctx-menu button { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 6px 10px; border-radius: 5px; }
+.ctx-menu button:hover { background: rgba(255,255,255,0.08); }
+.ctx-menu .sep { height: 1px; background: var(--line, #3a3f48); margin: 4px 2px; }
+.ctx-menu .sub { padding-left: 14px; }
 
 .form-grid { display: grid; grid-template-columns: 80px 1fr; gap: 6px 8px; align-items: center; font-size: 12.5px; margin-top: 10px; }
 .form-grid > span { color: var(--muted); }

@@ -379,10 +379,13 @@
     const sub = new Uint8Array(bw * bh);
     for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) sub[y * bw + x] = mask[(by0 + y) * W + bx0 + x];
     const sd = signedDistance(sub, bw, bh);
-    // 1. alte Stelle zu Meer machen
+    // 1. alte Stelle zu Meer machen: flacher Schelf an der alten Küste, zur Mitte hin normale Meerestiefe
     for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
       const i = y * W + x;
-      if (mask[i]) { h[i] = -0.12; map.biomeMap[i] = 255; map.stateMap[i] = 0; }
+      if (!mask[i]) continue;
+      const din = Math.max(0, sd[(y - by0) * bw + (x - bx0)]);
+      h[i] = -0.04 - 0.38 * (1 - Math.exp(-din / 14));
+      map.biomeMap[i] = 255; map.stateMap[i] = 0;
     }
     // 2. an neuer Stelle einsetzen (inverse Abbildung je Zielzelle)
     const corners = [[bx0, by0], [bx1, by0], [bx0, by1], [bx1, by1]].map(([x, y]) => fwd(x, y));

@@ -45,6 +45,14 @@
         <button class="tool" data-tool="biome" title="Landschaftsform malen: Wald, Wüste, Sumpf … (W)"><span>🌲</span>Landschaft</button>
       </div>
       <div class="tool-group">
+        <div class="group-title">Formen</div>
+        <button class="tool" data-tool="sketch" title="Umriss zeichnen → natürliches Land (K) · Shift: versenken"><span>✏️</span>Skizze</button>
+        <button class="tool" data-tool="range" title="Gebirgszug als Linie klicken (R)"><span>🗻</span>Gebirgslinie</button>
+        <button class="tool" data-tool="river" title="Flusslauf zeichnen (F)"><span>💧</span>Fluss</button>
+        <button class="tool" data-tool="move" title="Landmasse verschieben, drehen, skalieren (U)"><span>🧭</span>Verschieben</button>
+        <button class="tool" data-tool="reroll" title="Bereich neu generieren (N)"><span>🎲</span>Neu würfeln</button>
+      </div>
+      <div class="tool-group">
         <div class="group-title">Politik</div>
         <button class="tool" data-tool="state" title="Gebiet einem Staat zuweisen"><span>🖌️</span>Staat malen</button>
         <button class="tool" data-tool="city" title="Städte setzen, auswählen, verschieben"><span>🏰</span>Städte</button>
@@ -66,6 +74,7 @@
       <canvas id="mapCanvas"></canvas>
       <div class="hint" id="hint"></div>
       <div class="coords" id="coords"></div>
+      <div class="ctx-menu" id="ctxMenu" hidden></div>
       <div class="zoom">
         <button id="zoomIn" title="Hineinzoomen">＋</button>
         <button id="zoomFit" title="Ganze Karte">⤢</button>
@@ -116,6 +125,12 @@
         <div class="btn-row">
           <button id="btnRegionNames" title="Gebirge, Wälder, Wüsten, Sümpfe, Seen und große Flüsse neu benennen">🏷 Landschaftsnamen neu erzeugen</button>
         </div>
+      </section>
+
+      <section class="card" id="shapeCard" hidden>
+        <h3 id="shapeTitle">Form</h3>
+        <div class="info" id="shapeInfo"></div>
+        <div class="btn-row" id="shapeButtons"></div>
       </section>
 
       <section class="card" id="poiCard" hidden>
