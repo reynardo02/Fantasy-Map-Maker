@@ -620,6 +620,8 @@
   }
 
   // ---------- Hauptfunktion ----------
+  FMM.generateHeights = generateHeights;
+
   FMM.generateMap = function (params) {
     const p = Object.assign({
       name: 'Neue Welt',

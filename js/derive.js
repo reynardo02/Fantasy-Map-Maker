@@ -93,7 +93,14 @@
     }
 
     // Abflussmenge: von oben nach unten aufsummieren
+    const density = map.settings.riverDensity || 1;
+    const T = (N * 0.0005) / density;
     const flux = new Float32Array(N);
+    // gezeichnete Flüsse: Quellen speisen zusätzlich Wasser ein, damit der Fluss ab dort sichtbar ist
+    for (const s of map.springs || []) {
+      const i = FMM.clamp(Math.floor(s.y), 0, H - 1) * W + FMM.clamp(Math.floor(s.x), 0, W - 1);
+      if (h[i] >= 0) flux[i] += T * 1.3;
+    }
     for (let k = oc - 1; k >= 0; k--) {
       const c = order[k];
       flux[c] += 0.25 + moist[c];
@@ -130,8 +137,6 @@
     }
 
     // Flüsse
-    const density = map.settings.riverDensity || 1;
-    const T = (N * 0.0005) / density;
     const isRiver = new Uint8Array(N);
     const upCount = new Uint8Array(N);
     for (let i = 0; i < N; i++) if (h[i] >= 0 && flux[i] >= T) isRiver[i] = 1;
