@@ -91,10 +91,11 @@
       this.hitBoxes = [];
     }
 
-    setMap(map) {
+    setMap(map, opts) {
       this.map = map;
-      // doppelte Auflösung für glatte Küsten und Übergänge (bei sehr großen Karten einfach)
-      this.S = map.width * map.height <= 2000000 ? 2 : 1;
+      // doppelte Auflösung für glatte Küsten und Übergänge (bei sehr großen Karten einfach);
+      // beim Druck-Export höher
+      this.S = opts && opts.S ? opts.S : map.width * map.height <= 2000000 ? 2 : 1;
       this.base.width = map.width * this.S;
       this.base.height = map.height * this.S;
       this.img = this.bctx.createImageData(this.base.width, this.base.height);
@@ -1335,7 +1336,16 @@
       const ctx = c.getContext('2d');
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(this.base, 0, 0, c.width, c.height);
+      // Rasterbild für größere Exporte in höherer Auflösung neu berechnen (sonst unscharf hochskaliert)
+      const S = FMM.exportSupersampling(map, factor);
+      if (S > this.S) {
+        const hi = new Renderer();
+        hi.setMap(map, { S });
+        hi.renderBase(map, d);
+        ctx.drawImage(hi.base, 0, 0, c.width, c.height);
+      } else {
+        ctx.drawImage(this.base, 0, 0, c.width, c.height);
+      }
       const saved = this.hitBoxes;
       this.drawOverlay(ctx, map, d, { scale: factor, ox: 0, oy: 0 }, {});
       this.hitBoxes = saved;
@@ -1397,6 +1407,17 @@
     ctx.fillStyle = light; ctx.fill();
     ctx.strokeStyle = dark; ctx.lineWidth = len * 0.02; ctx.stroke();
   }
+
+  // Auflösung des Rasterbilds beim Export: bis zum Exportfaktor, höchstens 4× und ca. 25 Mio. Pixel
+  FMM.exportSupersampling = function (map, factor) {
+    const byMem = Math.floor(Math.sqrt(25e6 / (map.width * map.height)));
+    return Math.max(1, Math.min(Math.ceil(factor), 4, byMem));
+  };
+  // größte sichere Exportgröße (Browser-Grenzen für Canvas)
+  FMM.exportFits = function (map, factor) {
+    const w = map.width * factor, h = map.height * factor;
+    return w <= 16384 && h <= 16384 && w * h <= 120e6;
+  };
 
   FMM.Renderer = Renderer;
 })();

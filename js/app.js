@@ -458,7 +458,13 @@
     },
 
     exportPng(factor) {
-      this.busy(true, 'Exportiere Bild …');
+      if (!FMM.exportFits(this.map, factor)) {
+        let f = factor;
+        while (f > 1 && !FMM.exportFits(this.map, f)) f--;
+        alert(`Diese Auflösung ist für den Browser zu groß (${this.map.width * factor} × ${this.map.height * factor} Pixel). Bitte höchstens ${f}× wählen.`);
+        return;
+      }
+      this.busy(true, factor >= 3 ? 'Berechne Druckauflösung …' : 'Exportiere Bild …');
       setTimeout(() => {
         try {
           const c = this.renderer.exportCanvas(this.map, this.d, factor);
