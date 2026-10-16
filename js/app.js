@@ -152,7 +152,7 @@
       $('biomeCard').hidden = tool !== 'biome';
       if (tool !== 'biome' || !this.map) return;
       this.renderBiomeList();
-      if (this.map.view.style !== 'geo') {
+      if (this.map.view.style !== 'geo' && this.map.view.style !== 'fantasy') {
         this.map.view.style = 'geo';
         this.map.view.layers = Object.assign({}, FMM.STYLE_PRESETS.geo);
         this.renderer.renderBase(this.map, this.d);
@@ -447,7 +447,7 @@
       else {
         txt = 'Höhe ' + Math.round(h * 6000).toLocaleString('de-DE') + ' m';
         const b = FMM.BIOMES[this.renderer.biome[i]];
-        if (b && this.map.view.style === 'geo') txt += ' · ' + b.name + (this.map.biomeMap[i] !== 255 ? ' (gemalt)' : '');
+        if (b && (this.map.view.style === 'geo' || this.map.view.style === 'fantasy')) txt += ' · ' + b.name + (this.map.biomeMap[i] !== 255 ? ' (gemalt)' : '');
       }
       const st = this.stateAt(x, y);
       if (st) txt += ' · ' + st.form + ' ' + st.name;

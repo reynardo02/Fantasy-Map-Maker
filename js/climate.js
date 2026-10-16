@@ -12,19 +12,25 @@
     sued: 'Südwind',
   };
 
-  // Hauptwindrichtung einer Zeile: Westwinde in kühlen/mittleren Breiten, Passat aus Osten in warmen
-  function autoWind(latT) {
-    return latT < 0.62 ? 'west' : 'ost';
+  // Anteil des Passats (Ostwind) nach Breite: Westwinde in kühlen/mittleren Breiten, Passat in warmen.
+  // Kein harter Wechsel – beide Windsysteme gehen über einen breiten Gürtel ineinander über.
+  function tradeShare(latT) {
+    return FMM.smoothstep(0.5, 0.74, latT);
   }
+
+  // Version der Niederschlagsberechnung; ältere gespeicherte Karten werden beim Laden neu berechnet
+  FMM.MOISTURE_VERSION = 2;
 
   FMM.computeMoisture = function (map) {
     const W = map.width, H = map.height, N = W * H, h = map.heights;
     const latT = FMM.Derive.latitudeTemps(map);
     const setting = map.settings.wind || 'auto';
+    map.settings.moistureV = FMM.MOISTURE_VERSION;
     const precip = new Float32Array(N);
+    const noise = FMM.createNoise2D(FMM.makeRng((map.settings.seed || 'welt') + 'feuchte'));
 
-    // Luftpaket entlang einer Linie von Zellen (in Windrichtung) führen
-    const march = (cells, warmth) => {
+    // Luftpaket entlang einer Linie von Zellen (in Windrichtung) führen; wt: Gewicht pro Zelle
+    const march = (cells, warmth, wt) => {
       let q = 0.9; // Luftfeuchte
       let prev = 0;
       for (let k = 0; k < cells.length; k++) {
@@ -40,7 +46,7 @@
         let rain = q * (0.008 + lift * 2.6 + v * 0.004);
         if (rain > q) rain = q;
         q -= rain;
-        precip[i] += rain;
+        precip[i] += rain * (wt ? wt[k] : 1);
         q += rain * 0.55; // Verdunstung über Land (Pflanzen, Böden)
         if (q > 1) q = 1;
         prev = v;
@@ -48,12 +54,23 @@
     };
 
     const line = [];
+    const wt = new Float32Array(Math.max(W, H));
     for (let y = 0; y < H; y++) {
-      const dir = setting === 'auto' ? autoWind(latT[y]) : setting;
-      if (dir !== 'west' && dir !== 'ost') continue;
-      line.length = 0;
-      for (let x = 0; x < W; x++) line.push(y * W + (dir === 'west' ? x : W - 1 - x));
-      march(line, FMM.clamp(latT[y], 0, 1));
+      const warmth = FMM.clamp(latT[y], 0, 1);
+      if (setting === 'auto') {
+        // Grenze der Windgürtel leicht gewellt statt entlang eines Breitengrades
+        const share = (x) => tradeShare(latT[y] + FMM.fbm(noise, x / H * 3 + 50, y / H * 3, 3, 2, 0.5) * 0.08);
+        line.length = 0;
+        for (let x = 0; x < W; x++) { line.push(y * W + x); wt[x] = 1 - share(x); }
+        march(line, warmth, wt);
+        line.length = 0;
+        for (let x = 0; x < W; x++) { line.push(y * W + W - 1 - x); wt[x] = share(W - 1 - x); }
+        march(line, warmth, wt);
+      } else if (setting === 'west' || setting === 'ost') {
+        line.length = 0;
+        for (let x = 0; x < W; x++) line.push(y * W + (setting === 'west' ? x : W - 1 - x));
+        march(line, warmth);
+      }
     }
     if (setting === 'nord' || setting === 'sued') {
       for (let x = 0; x < W; x++) {
@@ -63,9 +80,11 @@
       }
     }
 
-    // Glätten (Luftmassen sind breiter als eine Zeile)
-    boxBlur(precip, W, H, 4);
-    boxBlur(precip, W, H, 4);
+    // Glätten (Luftmassen sind breiter als eine Zeile); drei Durchgänge ≈ Gaußfilter ohne Kanten
+    const br = Math.max(3, Math.round(5 * Math.min(W, H) / 750));
+    boxBlur(precip, W, H, br);
+    boxBlur(precip, W, H, br);
+    boxBlur(precip, W, H, br);
 
     // normieren an der feuchten Landfläche
     const vals = [];
@@ -75,7 +94,6 @@
     const ref = vals.length ? vals[Math.floor(vals.length * 0.9)] || 1e-6 : 1;
 
     // etwas großräumige Variation, damit es nicht zu gleichförmig wirkt
-    const noise = FMM.createNoise2D(FMM.makeRng((map.settings.seed || 'welt') + 'feuchte'));
     const m = new Float32Array(N);
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {

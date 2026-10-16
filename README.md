@@ -4,6 +4,7 @@ Ein Browser-Werkzeug zum Erstellen **realistisch aussehender Fantasy-Karten**, g
 
 ![Geografische Ansicht](docs/vorschau-geografisch.png)
 ![Politische Ansicht](docs/vorschau-politisch.png)
+![Fantasy-Ansicht](docs/vorschau-fantasy.png)
 
 Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt und keine Abhängigkeiten.
 
@@ -43,8 +44,9 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Geografisch:** natürliche, satellitenbildartige Farben, stufenlos aus Klima und Feuchtigkeit (Wüstensand bis tiefgrüner Wald), Wälder mit feiner Kronenstruktur, alpine Matten, Fels und Schnee im Gebirge, weiches Relief, Meerestiefen und Legende
 - **Politisch:** Staatsfarben, Grenzen und Staatsnamen, die sich der Form des Staats anpassen
 - **Antik:** Pergament-Look mit Gradnetz, Rahmen und Vignette
+- **Fantasy:** gemalter Look klassischer Fantasy-Karten – helle Aquarellfarben, tiefblaues Meer mit hellem Küstensaum, gezeichnete Gebirgsketten mit Schraffur und Schneekappen, Wälder als dichte Baumflächen
 - Küsten, Seeufer und Staatsgrenzen sind geglättete Vektorlinien; das Kartenbild wird in doppelter Auflösung berechnet
-- Ebenen einzeln schaltbar: Relief, Flüsse, Straßen, Symbole (gezeichnete Berge, Hügel und Bäume, im antiken Stil standardmäßig an), Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
+- Ebenen einzeln schaltbar: Relief, Flüsse, Straßen, Symbole (gezeichnete Berge, Hügel und Bäume, im antiken und im Fantasy-Stil standardmäßig an), Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
 
 ### Bearbeiten
 | Werkzeug | Taste | Funktion |

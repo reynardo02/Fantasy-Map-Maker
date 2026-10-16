@@ -5,6 +5,14 @@
 
   // Symbole aus Gelände und Landschaftsformen ableiten
   FMM.buildSymbols = function (map, d, renderer) {
+    const style = map.view.style;
+    if (style === 'fantasy') return buildFantasy(map, d, renderer);
+    const out = buildClassic(map, d, renderer);
+    out.style = style;
+    return out;
+  };
+
+  function buildClassic(map, d, renderer) {
     const W = map.width, H = map.height, h = map.heights;
     const unit = Math.min(W, H) / 750;
     const BI = FMM.BIOME_ID;
@@ -75,7 +83,193 @@
     // von hinten nach vorn zeichnen, damit untere Symbole obere überdecken
     out.sort((a, b) => a.y - b.y);
     return out;
-  };
+  }
+
+  // ---------- Fantasy-Stil: Gebirgsketten und dichte Waldflächen wie auf gemalten Fantasy-Karten ----------
+  function buildFantasy(map, d, renderer) {
+    const W = map.width, H = map.height, h = map.heights;
+    const unit = Math.min(W, H) / 750;
+    const BI = FMM.BIOME_ID;
+    const biome = renderer.biome;
+    const busy = new Uint8Array(W * H); // von Bergen/Hügeln belegte Zellen → dort keine Bäume
+    // Städte freihalten (Maske statt Suche je Symbol)
+    const free = new Uint8Array(W * H);
+    for (const c of map.cities) {
+      const x0 = Math.max(0, Math.floor(c.x - 6 * unit)), x1 = Math.min(W - 1, Math.ceil(c.x + 6 * unit));
+      const y0 = Math.max(0, Math.floor(c.y - 4 * unit)), y1 = Math.min(H - 1, Math.ceil(c.y + 4 * unit));
+      for (let yy = y0; yy <= y1; yy++) free.fill(1, yy * W + x0, yy * W + x1 + 1);
+    }
+    const cityNear = (x, y) => free[(y | 0) * W + (x | 0)] === 1;
+    const mark = (x, y, s, up) => {
+      const x0 = Math.max(0, Math.floor(x - s)), x1 = Math.min(W - 1, Math.ceil(x + s));
+      const y0 = Math.max(0, Math.floor(y - s * up)), y1 = Math.min(H - 1, Math.ceil(y + s * 0.3));
+      for (let yy = y0; yy <= y1; yy++) busy.fill(1, yy * W + x0, yy * W + x1 + 1);
+    };
+    const relief = [];
+
+    // Gipfel: dichtes, versetztes Raster entlang der Grate – überlappend, damit Ketten entstehen
+    const gm = Math.max(5, Math.round(8 * unit));
+    for (let gy = gm; gy < H - gm; gy += gm) {
+      const row = (gy / gm) | 0;
+      for (let gx = gm + (row % 2 ? gm >> 1 : 0); gx < W - gm; gx += gm) {
+        const x = gx + Math.floor((FMM.hash2(gx + 5, gy) - 0.5) * gm * 0.7);
+        const y = gy + Math.floor((FMM.hash2(gy + 2, gx + 9) - 0.5) * gm * 0.7);
+        const i = y * W + x;
+        const v = h[i];
+        if (v < 0.42 || d.lake[i] || cityNear(x, y)) continue;
+        const rr = FMM.hash2(x + 3, y * 5);
+        // Täler zwischen den Graten freilassen, im Hochgebirge dichter
+        if (d.curv[i] < -0.006 && rr < 0.8) continue;
+        if (v < 0.52 && rr < 0.45) continue;
+        const s = (4.6 + (v - 0.42) * 16) * unit * (0.8 + rr * 0.4);
+        const snowLine = FMM.clamp(0.58 + (d.latT[y] - 0.3) * 0.7, 0.36, 0.95);
+        const snow = FMM.clamp((v - snowLine + 0.06) / 0.14, 0, 1);
+        relief.push({ t: 'gipfel', x: x + 0.5, y: y + 0.5, s, r: FMM.hash2(x, y), r2: FMM.hash2(y + 7, x), snow });
+        mark(x, y, s, 1.6);
+      }
+    }
+    // Hügelland
+    const gh = Math.max(4, Math.round(7 * unit));
+    for (let gy = gh; gy < H - gh; gy += gh) {
+      for (let gx = gh; gx < W - gh; gx += gh) {
+        const x = gx + Math.floor((FMM.hash2(gx + 1, gy + 4) - 0.5) * gh * 0.8);
+        const y = gy + Math.floor((FMM.hash2(gy + 6, gx + 2) - 0.5) * gh * 0.8);
+        const i = y * W + x;
+        const v = h[i];
+        if (v < 0.26 || v >= 0.42 || busy[i] || d.lake[i] || cityNear(x, y)) continue;
+        const rr = FMM.hash2(x * 3 + 1, y + 8);
+        if (rr < 0.8) continue;
+        const s = (2.6 + (v - 0.26) * 9) * unit;
+        relief.push({ t: 'huegel', x: x + 0.5, y: y + 0.5, s, r: rr });
+        mark(x, y, s, 0.9);
+      }
+    }
+    relief.sort((a, b) => a.y - b.y);
+
+    // Wald: feines Raster, jede Abtastung eine Baumkrone
+    const gt = Math.max(2, 2.3 * unit);
+    const trees = [];
+    for (let fy = gt; fy < H - gt; fy += gt) {
+      for (let fx = gt; fx < W - gt; fx += gt) {
+        const ix = fx | 0, iy = fy | 0;
+        const x = fx + (FMM.hash2(ix, iy + 17) - 0.5) * gt * 0.9;
+        const y = fy + (FMM.hash2(iy + 3, ix + 29) - 0.5) * gt * 0.9;
+        const i = (y | 0) * W + (x | 0);
+        const bi = biome[i];
+        if (bi !== BI.wald && bi !== BI.taiga && bi !== BI.regenwald) continue;
+        if (h[i] < 0.004 || busy[i] || d.lake[i] || d.riverDist[i] < 1.3 || cityNear(x, y)) continue;
+        const rnd = FMM.hash2(ix * 7 + 1, iy * 13 + 2);
+        trees.push({ t: bi === BI.taiga ? 'nadel' : bi === BI.regenwald ? 'tropen' : 'laub', x, y, s: (1.15 + rnd * 0.35) * unit, r: rnd });
+      }
+    }
+    trees.sort((a, b) => a.y - b.y);
+    return { style: 'fantasy', relief, forest: batchTrees(trees) };
+  }
+
+  // Baumkronen in wenige Sammelpfade bündeln (zehntausende Symbole bleiben schnell)
+  function batchTrees(trees) {
+    const P = () => new Path2D();
+    const b = { shadow: P(), fill: { laub: [P(), P()], nadel: [P(), P()], tropen: [P(), P()] } };
+    for (const o of trees) {
+      const { x, y, s, r } = o;
+      const f = b.fill[o.t][r > 0.5 ? 1 : 0];
+      if (o.t === 'nadel') {
+        const tri = (pa, dx, dy) => { pa.moveTo(x + dx, y - s * 1.9 + dy); pa.lineTo(x + s * 0.72 + dx, y + dy); pa.lineTo(x - s * 0.72 + dx, y + dy); pa.closePath(); };
+        tri(b.shadow, s * 0.3, s * 0.2);
+        tri(f, 0, 0);
+      } else {
+        const rr = s * (o.t === 'tropen' ? 0.95 : 0.82), cy = y - s * 0.6;
+        b.shadow.moveTo(x + rr + s * 0.3, cy + s * 0.25); b.shadow.arc(x + s * 0.3, cy + s * 0.25, rr, 0, Math.PI * 2);
+        f.moveTo(x + rr, cy); f.arc(x, cy, rr, 0, Math.PI * 2);
+      }
+    }
+    return b;
+  }
+
+  function drawFantasy(ctx, sym, unit) {
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // Wald
+    const F = sym.forest;
+    ctx.fillStyle = 'rgba(24,42,22,0.45)';
+    ctx.fill(F.shadow);
+    const cols = { laub: ['#56803c', '#64904a'], nadel: ['#3f6444', '#4b724c'], tropen: ['#3f7c38', '#4c8c3e'] };
+    for (const k of ['laub', 'nadel', 'tropen']) {
+      ctx.fillStyle = cols[k][0]; ctx.fill(F.fill[k][0]);
+      ctx.fillStyle = cols[k][1]; ctx.fill(F.fill[k][1]);
+    }
+    // Kontur über alle Kronen: die Überschneidungen ergeben die getupfte Waldstruktur
+    ctx.strokeStyle = 'rgba(30,48,26,0.55)';
+    ctx.lineWidth = 0.32 * unit;
+    for (const k of ['laub', 'nadel', 'tropen']) { ctx.stroke(F.fill[k][0]); ctx.stroke(F.fill[k][1]); }
+
+    // Gebirge und Hügel (von hinten nach vorn)
+    const ink = 'rgba(58,46,34,0.9)', light = '#d9cba8', shade = 'rgba(140,124,102,0.95)', hatch = 'rgba(70,58,44,0.55)';
+    for (const o of sym.relief) {
+      const { x, y, s, r } = o;
+      if (o.t === 'huegel') {
+        ctx.beginPath();
+        ctx.moveTo(x - s, y); ctx.quadraticCurveTo(x - s * 0.1, y - s * 1.05, x + s, y);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(214,202,160,0.9)'; ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x - s, y); ctx.quadraticCurveTo(x - s * 0.1, y - s * 1.05, x + s, y);
+        ctx.strokeStyle = ink; ctx.lineWidth = 0.45 * unit; ctx.stroke();
+        ctx.beginPath();
+        for (let k = 0; k < 3; k++) { const hx = x + s * (0.2 + k * 0.22); ctx.moveTo(hx, y - s * (0.42 - k * 0.12)); ctx.lineTo(hx + s * 0.12, y - s * 0.05); }
+        ctx.strokeStyle = hatch; ctx.lineWidth = 0.35 * unit; ctx.stroke();
+        continue;
+      }
+      // Gipfel mit Nebenspitzen
+      const hgt = s * (1.0 + r * 0.4);
+      const px = x + (r - 0.5) * s * 0.3, py = y - hgt;
+      const L1x = x - s * 0.62, L1y = y - hgt * (0.4 + o.r2 * 0.15);
+      const L2x = x - s * 0.38, L2y = y - hgt * 0.36;
+      const R1x = x + s * 0.42, R1y = y - hgt * 0.5;
+      const R2x = x + s * 0.62, R2y = y - hgt * (o.r2 > 0.45 ? 0.52 : 0.4);
+      const outline = () => {
+        ctx.moveTo(x - s, y); ctx.lineTo(L1x, L1y); ctx.lineTo(L2x, L2y); ctx.lineTo(px, py);
+        ctx.lineTo(R1x, R1y); ctx.lineTo(R2x, R2y); ctx.lineTo(x + s, y);
+      };
+      ctx.beginPath(); outline(); ctx.closePath();
+      ctx.fillStyle = light; ctx.fill();
+      // Schattenseite
+      const bx = x + s * 0.08;
+      ctx.beginPath();
+      ctx.moveTo(px, py); ctx.lineTo(R1x, R1y); ctx.lineTo(R2x, R2y); ctx.lineTo(x + s, y); ctx.lineTo(bx, y);
+      ctx.quadraticCurveTo(px + s * 0.12, y - hgt * 0.45, px, py);
+      ctx.fillStyle = shade; ctx.fill();
+      // Schraffur auf der Schattenseite
+      ctx.beginPath();
+      const n = 3 + Math.round(s / unit * 0.5);
+      for (let k = 1; k <= n; k++) {
+        const t = k / (n + 1);
+        const ax = px + (bx - px) * t, ay = py + (y - py) * t;
+        ctx.moveTo(ax, ay); ctx.lineTo(ax + s * 0.45 * (1 - t * 0.4), ay + hgt * 0.16);
+      }
+      ctx.strokeStyle = hatch; ctx.lineWidth = 0.3 * unit; ctx.stroke();
+      // Schneekappe
+      if (o.snow > 0.05) {
+        const f = 0.28 + o.snow * 0.3;
+        const lx = px + (L2x - px) * f * 1.6, ly = py + (L2y - py) * f * 1.6;
+        const rx = px + (R1x - px) * f * 1.8, ry = py + (R1y - py) * f * 1.8;
+        ctx.beginPath();
+        ctx.moveTo(px, py); ctx.lineTo(lx, ly);
+        ctx.lineTo(px - s * 0.12, py + hgt * f * 0.85); ctx.lineTo(px + s * 0.02, py + hgt * f * 0.6);
+        ctx.lineTo(px + s * 0.14, py + hgt * f * 0.95); ctx.lineTo(rx, ry); ctx.closePath();
+        ctx.fillStyle = 'rgba(252,252,250,0.95)'; ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(px, py); ctx.lineTo(rx, ry); ctx.lineTo(px + s * 0.14, py + hgt * f * 0.95); ctx.lineTo(px + s * 0.05, py + hgt * f * 0.5); ctx.closePath();
+        ctx.fillStyle = 'rgba(196,208,222,0.9)'; ctx.fill();
+      }
+      // Umriss und Gratlinie
+      ctx.beginPath(); outline();
+      ctx.moveTo(px, py); ctx.quadraticCurveTo(px + s * 0.12, y - hgt * 0.45, bx, y - hgt * 0.05);
+      ctx.strokeStyle = ink; ctx.lineWidth = 0.5 * unit; ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   const PALETTE = {
     geo: { ink: 'rgba(40,36,30,0.85)', light: 'rgba(236,230,214,0.9)', shade: 'rgba(80,70,58,0.55)', tree: '#355a2c', tree2: '#5d7d3a', ground: 'rgba(40,36,30,0.6)' },
@@ -84,6 +278,7 @@
   };
 
   FMM.drawSymbols = function (ctx, symbols, style, unit) {
+    if (symbols.style === 'fantasy') return drawFantasy(ctx, symbols, unit);
     const P = PALETTE[style] || PALETTE.antique;
     ctx.save();
     ctx.lineJoin = 'round';

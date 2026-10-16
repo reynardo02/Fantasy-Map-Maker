@@ -63,7 +63,7 @@
     if (o.biomeMap) biomeMap.set(b64ToBytes(o.biomeMap).subarray(0, N));
     const view = Object.assign({ style: 'geo', relief: 1 }, o.view);
     view.layers = Object.assign({}, FMM.STYLE_PRESETS[view.style] || FMM.STYLE_PRESETS.geo, (o.view || {}).layers);
-    return {
+    const map = {
       version: 1,
       id: o.id || FMM.uid(),
       name: o.name || 'Unbenannte Karte',
@@ -80,6 +80,11 @@
       stateMap,
       biomeMap,
     };
+    // ältere Karten: Niederschlag neu berechnen (früher harte Kante zwischen West- und Ostwindgürtel)
+    if ((map.settings.moistureV || 1) < FMM.MOISTURE_VERSION) {
+      map.moisture = FMM.computeMoisture(map);
+    }
+    return map;
   };
 
   // ---------- Datei-Export/-Import (gzip, wenn verfügbar) ----------
