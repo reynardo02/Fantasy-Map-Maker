@@ -459,24 +459,36 @@
       }
       const L = trunk.length;
       if (L < 8 * unit) continue;
+      // keine zwei Fjorde dicht nebeneinander
+      if (mouths.some((o) => Math.hypot((o % W) - (mouth % W), ((o / W) | 0) - ((mouth / W) | 0)) < 9 * unit)) continue;
       let maxH = 0;
       for (const t of trunk) maxH = Math.max(maxH, h[t]);
       if (maxH < 0.14) continue; // nur an hügeligen bis gebirgigen Küsten
-      const R = Math.ceil(3.2 * unit);
+      const R = Math.ceil(5.5 * unit);
+      const ph = rng() * 100;
       for (let k = 1; k <= L; k++) {
         const c = trunk[k - 1];
         const f = 1 - k / L;
         const depth = -0.006 - 0.08 * f;
         const rad = (0.9 + 1.7 * f) * unit;
-        const cx = c % W, cy = (c / W) | 0;
+        // gewundener Verlauf: Mittellinie seitlich versetzt
+        const a = trunk[Math.max(0, k - 4)], b = trunk[Math.min(L - 1, k + 2)];
+        let tx = (b % W) - (a % W), ty = ((b / W) | 0) - ((a / W) | 0);
+        const tl = Math.hypot(tx, ty) || 1;
+        tx /= tl; ty /= tl;
+        const off = Math.sin(k * 0.16 + ph) * 1.8 * unit * Math.min(1, k / 6);
+        const cx = Math.round((c % W) - ty * off), cy = Math.round(((c / W) | 0) + tx * off);
+        const soft = 2.5 * unit;
         for (let dy = -R; dy <= R; dy++) {
           for (let dx = -R; dx <= R; dx++) {
             const dist = Math.hypot(dx, dy);
-            if (dist > rad) continue;
+            if (dist > rad + soft) continue;
             const x = cx + dx, y = cy + dy;
             if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
             const j = y * W + x;
-            h[j] = Math.min(h[j], depth * (1 - (dist / (rad + 0.5)) * 0.6));
+            // Rinne mit weich ansteigenden Ufern (glatte Küstenlinie statt Treppenstufen)
+            if (dist <= rad) h[j] = Math.min(h[j], depth * (1 - (dist / (rad + 0.5)) * 0.6) * Math.min(1, (rad - dist + 0.3) / 1.2));
+            else if (h[j] > 0) h[j] = Math.min(h[j], h[j] * ((dist - rad) / soft) + 0.0005);
           }
         }
         // steile Trogwände: Ufer leicht anheben
@@ -526,7 +538,7 @@
         if (h[i] < 0 || h[i] > 0.035 || d.coastDist[i] !== 0) continue;
         if (d.latT[y] + d.tempA[i] < 0.5) continue;
         // nur auf einigen Küstenabschnitten
-        if (FMM.fbm(noise, x / (90 * unit), y / (90 * unit), 3, 2, 0.5) < 0.1) continue;
+        if (FMM.fbm(noise, x / (90 * unit), y / (90 * unit), 3, 2, 0.5) < 0.22) continue;
         dist[i] = 0;
         any = true;
       }
@@ -558,7 +570,7 @@
         if (v < off - half) h[i] = Math.max(h[i], -0.014); // Lagune
         else if (v <= off + half) {
           // Wall mit Durchlässen zum Meer
-          if (FMM.fbm(noise, x / (12 * unit) + 30, y / (12 * unit), 2, 2, 0.5) > 0.38) continue;
+          if (FMM.fbm(noise, x / (12 * unit) + 30, y / (12 * unit), 2, 2, 0.5) > 0.5) continue;
           h[i] = 0.004 + FMM.hash2(x, y) * 0.004;
         }
       }
@@ -908,6 +920,7 @@
       cities: [],
       labels: [],
       pois: [],
+      walls: [],
     };
     map.heights = generateHeights(p, rng);
     const d0 = { latT: FMM.Derive.latitudeTemps(map) };
@@ -925,8 +938,10 @@
     const names = new FMM.NameGen(rng);
     generatePolitics(map, d, rng, p, names);
     map.labels = generateSeaLabels(map, d, rng, names);
+    map.walls = FMM.generateWalls ? FMM.generateWalls(map, d, rng, names) : [];
     map.labels.push(...FMM.generateRegionLabels(map, d, rng));
     map.pois = FMM.generatePois(map, d, rng);
+    if (FMM.generateDecoLabels) map.labels.push(...FMM.generateDecoLabels(map, d, rng));
     return map;
   };
 
@@ -945,9 +960,9 @@
   };
 
   FMM.STYLE_PRESETS = {
-    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true, symbols: false, cartouche: false, frame: false, pois: true, currents: false },
-    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true, symbols: false, cartouche: false, frame: false, pois: false, currents: false },
-    fantasy: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: false, roads: true, symbols: true, cartouche: true, frame: true, pois: true, currents: false },
-    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true, symbols: true, cartouche: true, frame: true, pois: true, currents: false },
+    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true, symbols: false, cartouche: false, frame: false, pois: true, currents: false, seaSymbols: false, seaRoutes: false, settlements: false },
+    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true, symbols: false, cartouche: false, frame: false, pois: false, currents: false, seaSymbols: false, seaRoutes: true, settlements: false },
+    fantasy: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: false, roads: true, symbols: true, cartouche: true, frame: true, pois: true, currents: false, seaSymbols: true, seaRoutes: true, settlements: true },
+    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true, symbols: true, cartouche: true, frame: true, pois: true, currents: false, seaSymbols: true, seaRoutes: true, settlements: true },
   };
 })();

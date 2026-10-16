@@ -430,6 +430,11 @@
       move(lb);
       if (!lb.path && ang) lb.angle = (lb.angle || 0) + ang;
     }
+    for (const w of map.walls || []) {
+      const m = (w.pts.length >> 2) << 1;
+      if (!onLand(w.pts[m], w.pts[m + 1])) continue;
+      for (let k = 0; k < w.pts.length; k += 2) { const [nx, ny] = fwd(w.pts[k], w.pts[k + 1]); w.pts[k] = +nx.toFixed(1); w.pts[k + 1] = +ny.toFixed(1); }
+    }
     for (const s of map.states) {
       if (s.labelX != null && onLand(s.labelX, s.labelY)) { const [nx, ny] = fwd(s.labelX, s.labelY); s.labelX = nx; s.labelY = ny; }
     }

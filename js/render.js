@@ -129,14 +129,33 @@
       this.roadCache = null;
       this.symbolCache = null;
       this.currentCache = null;
+      this.decorCache = null;
       this.live = null;
     }
 
     // Gelände geändert: Flüsse, Küsten, Grenzen und Straßen neu aufbauen
-    invalidateRivers() { this.riverCache = null; this.coastCache = null; this.borderCache = null; this.roadCache = null; this.symbolCache = null; this.currentCache = null; }
-    invalidateSymbols() { this.symbolCache = null; }
+    invalidateRivers() { this.riverCache = null; this.coastCache = null; this.borderCache = null; this.roadCache = null; this.symbolCache = null; this.currentCache = null; this.decorCache = null; }
+    invalidateSymbols() { this.symbolCache = null; this.decorCache = null; }
     invalidateBorders() { this.borderCache = null; }
-    invalidateRoads() { this.roadCache = null; this.symbolCache = null; }
+    invalidateRoads() { this.roadCache = null; this.symbolCache = null; this.decorCache = null; }
+
+    ensureRoads(map, d) {
+      if (!this.roadCache) {
+        const r = FMM.buildRoads(map, d);
+        this.roadCache = { main: FMM.Contours.toPath(r.main), minor: FMM.Contours.toPath(r.minor), count: r.main.length + r.minor.length, raw: r };
+      }
+      return this.roadCache;
+    }
+
+    // Kartenschmuck (Dörfer, Bauwerke, Meeressymbole, Seewege); Straßen nur, wenn sie angezeigt werden
+    ensureDecor(map, d) {
+      const roads = !!map.view.layers.roads;
+      if (!this.decorCache || this.decorCache.roads !== roads) {
+        this.decorCache = FMM.buildDecor(map, d, roads ? this.ensureRoads(map, d).raw : null);
+        this.decorCache.roads = roads;
+      }
+      return this.decorCache;
+    }
 
     // ---------- Rasterbild (Supersampling: S×S Pixel pro Kartenzelle) ----------
     renderBase(map, d, rect) {
@@ -683,6 +702,11 @@
         }
       }
 
+      // Meeressymbole und Seewege (unter Flüssen und Beschriftungen)
+      if ((L.seaSymbols || L.seaRoutes) && this.live !== 'terrain') {
+        FMM.drawSeaDecor(ctx, this.ensureDecor(map, d), sty, unit, { symbols: L.seaSymbols, routes: L.seaRoutes });
+      }
+
       if (L.rivers) {
         if (!this.riverCache) this.buildRivers(map, d);
         ctx.strokeStyle = st.river;
@@ -701,7 +725,7 @@
 
       // gezeichnete Symbole (Berge, Hügel, Bäume)
       if (L.symbols && this.live !== 'terrain') {
-        if (!this.symbolCache || this.symbolCache.style !== sty) this.symbolCache = FMM.buildSymbols(map, d, this);
+        if (!this.symbolCache || this.symbolCache.style !== sty || this.symbolCache.settle !== !!L.settlements) this.symbolCache = FMM.buildSymbols(map, d, this);
         FMM.drawSymbols(ctx, this.symbolCache, sty, unit);
       }
 
@@ -729,11 +753,7 @@
 
       // Straßen
       if (L.roads && this.live !== 'terrain') {
-        if (!this.roadCache) {
-          const r = FMM.buildRoads(map, d);
-          this.roadCache = { main: FMM.Contours.toPath(r.main), minor: FMM.Contours.toPath(r.minor), count: r.main.length + r.minor.length };
-        }
-        const rc = this.roadCache;
+        const rc = this.ensureRoads(map, d);
         const col = sty === 'geo' ? 'rgba(92,58,32,0.9)' : sty === 'political' ? 'rgba(120,72,44,0.85)' : 'rgba(70,46,24,0.9)';
         ctx.save();
         ctx.lineJoin = 'round';
@@ -754,6 +774,9 @@
         ctx.stroke(rc.minor);
         ctx.restore();
       }
+
+      // Dörfer, Burgen, Häfen, Brücken, Minen, Weinberge und Mauern
+      if (L.settlements && this.live !== 'terrain') FMM.drawSettlements(ctx, this.ensureDecor(map, d), map, sty, unit);
 
       if (L.currents && d.cur && this.live !== 'terrain') this.drawCurrents(ctx, map, d, unit);
       if (L.grid) this.drawGrid(ctx, map, unit);
@@ -781,6 +804,7 @@
       // Freie Beschriftungen & Meere
       if (L.labels) {
         for (const lb of map.labels) {
+          if (lb.wall && !L.settlements) continue; // Name einer ausgeblendeten Mauer
           const size = (lb.size || 14) * unit;
           if (lb.path && lb.path.length >= 4) {
             // Landschafts- und Flussnamen folgen ihrem Pfad
@@ -799,13 +823,14 @@
             if (opts.selection && opts.selection.type === 'label' && opts.selection.id === lb.id) this.drawSelBox(ctx, box, view);
             continue;
           }
-          const sea = lb.kind === 'sea';
-          const box = this.drawText(ctx, sea ? spaced(lb.text) : lb.text, lb.x, lb.y, {
-            font: `${sea ? 'italic ' : ''}${lb.bold ? '700 ' : ''}${size}px ${sea ? FONT_TEXT : lb.font === 'text' ? FONT_TEXT : FONT_LABEL}`,
+          const sea = lb.kind === 'sea' || (lb.kind === 'deko' && lb.water);
+          const deko = lb.kind === 'deko';
+          const box = this.drawText(ctx, sea && !deko ? spaced(lb.text) : lb.text, lb.x, lb.y, {
+            font: `${sea || deko ? 'italic ' : ''}${lb.bold ? '700 ' : ''}${size}px ${sea || deko || lb.font === 'text' ? FONT_TEXT : FONT_LABEL}`,
             color: lb.color || (sea ? st.sea : st.text),
             halo: sea ? st.seaHalo : st.halo,
             haloWidth: size * (sea ? 0.12 : 0.22),
-            spacing: sea ? size * 0.12 : size * 0.08,
+            spacing: deko ? size * 0.06 : sea ? size * 0.12 : size * 0.08,
             angle: lb.angle || 0,
             alpha: 0.92,
           });
@@ -1191,6 +1216,8 @@
         .map((b) => ({ name: b.name, color: `rgb(${b.color.join(',')})` }));
       items.push({ name: 'Fluss', line: st.river }, { name: 'See / Meer', color: 'rgb(56,110,158)' });
       if (map.view.layers.roads) items.push({ name: 'Straße', line: 'rgba(92,58,32,0.9)' }, { name: 'Weg', line: 'rgba(92,58,32,0.9)', dash: true });
+      if (map.view.layers.seaRoutes) items.push({ name: 'Seeweg', line: 'rgba(60,80,110,0.9)', dash: true });
+      if (map.view.layers.currents) items.push({ name: 'Warme Strömung', line: 'rgb(196,74,50)', dash: true }, { name: 'Kalte Strömung', line: 'rgb(46,104,178)', dash: true });
       const fs = 10 * unit, row = 14 * unit, pad = 8 * unit, sw = 14 * unit;
       ctx.save();
       ctx.font = `${fs}px ${FONT_TEXT}`;
@@ -1266,6 +1293,11 @@
         const seen = new Set(map.pois.map((p) => p.type));
         for (const k of Object.keys(FMM.POI_TYPES)) if (seen.has(k)) items.push([k, FMM.POI_TYPES[k]]);
       }
+      // vorkommende Bauwerke
+      if (map.view.layers.settlements && this.decorCache) {
+        const seen = new Set(this.decorCache.settle.map((o) => o.t));
+        for (const [k, name] of [['feste', 'Festung'], ['anker', 'Hafen'], ['mine', 'Mine'], ['wein', 'Weinbau']]) if (seen.has(k)) items.push([k, name]);
+      }
       ctx.save();
       let ts = 30 * unit;
       ctx.font = `700 ${ts}px ${FONT_LABEL}`;
@@ -1274,7 +1306,7 @@
       const ss = 13 * unit;
       ctx.font = `italic ${ss}px ${FONT_TEXT}`;
       const sw = sub ? ctx.measureText(sub).width : 0;
-      const cols = Math.min(items.length, 5), rows = Math.ceil(items.length / cols);
+      const cols = Math.min(items.length, items.length > 10 ? 6 : 5), rows = Math.ceil(items.length / cols);
       const cellW = 64 * unit, rowH = 38 * unit;
       const bw = Math.max(tw + 70 * unit, sw + 70 * unit, cols * cellW + 50 * unit, 230 * unit);
       const bh = 24 * unit + ts * 1.1 + (sub ? ss * 1.6 : 0) + 18 * unit + rows * rowH;

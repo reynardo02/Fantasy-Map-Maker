@@ -71,6 +71,10 @@
       type: { type: 'string', enum: [] },
       name: { type: 'string' },
     }, ['at', 'type']),
+    tool('build_wall', 'Baut eine große Grenzmauer mit Türmen entlang einer Linie (z. B. quer über eine Landenge, von Küste zu Küste).', {
+      path: line,
+      name: { type: 'string', description: 'optionaler Name, z. B. „Die Mauer“' },
+    }, ['path']),
     tool('add_label', 'Setzt eine freie Beschriftung (z. B. Name eines Meeres, einer Region).', {
       at: point,
       text: { type: 'string' },
@@ -180,6 +184,10 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
     if (map.pois && map.pois.length) {
       out.push('Sehenswürdigkeiten:');
       for (const p of map.pois.slice(0, 40)) out.push(`  ${p.id}: ${p.name} (${FMM.POI_TYPES[p.type] || p.type}), ${pc(p.x, p.y)}`);
+    }
+    if (map.walls && map.walls.length) {
+      out.push('Mauern:');
+      for (const w of map.walls) out.push(`  ${w.name || 'ohne Namen'}: ${pc(w.pts[0], w.pts[1])} → ${pc(w.pts[w.pts.length - 2], w.pts[w.pts.length - 1])}`);
     }
     if (map.labels.length) {
       out.push('Beschriftungen:');
@@ -292,6 +300,27 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
         refresh();
         return `Ort „${p.name}“ (${p.id}) gesetzt.`;
       },
+      build_wall(a) {
+        const m = map(), unit = Math.min(W(), H()) / 750, src = cells(a.path), pts = [];
+        for (let k = 0; k < src.length - 1; k++) {
+          const [ax, ay] = src[k], [bx, by] = src[k + 1];
+          const n = Math.max(1, Math.round(Math.hypot(bx - ax, by - ay) / (4 * unit)));
+          for (let j = 0; j < n; j++) pts.push(+(ax + ((bx - ax) * j) / n).toFixed(1), +(ay + ((by - ay) * j) / n).toFixed(1));
+        }
+        pts.push(+src[src.length - 1][0].toFixed(1), +src[src.length - 1][1].toFixed(1));
+        const w = { id: FMM.uid(), pts, name: a.name || '' };
+        if (!m.walls) m.walls = [];
+        m.walls.push(w);
+        if (a.name) {
+          const mid = Math.floor(pts.length / 4) * 2;
+          m.labels.push({ id: FMM.uid(), kind: 'region', sub: 'mauer', text: a.name, x: pts[mid], y: +(pts[mid + 1] - 6 * unit).toFixed(1), size: 8, font: 'text', angle: 0, wall: w.id });
+        }
+        m.view.layers.settlements = true;
+        app.renderer.invalidateSymbols();
+        app.syncUi();
+        refresh();
+        return `Mauer${a.name ? ' „' + a.name + '“' : ''} gebaut.`;
+      },
       add_label(a) {
         const [x, y] = cell(a.at);
         const lb = { id: FMM.uid(), x, y, text: a.text, kind: a.kind === 'gewaesser' ? 'sea' : 'custom', size: a.size || 16, angle: 0 };
@@ -327,12 +356,12 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
     };
   }
 
-  const MUTATING = new Set(['add_landmass', 'remove_land', 'add_mountain_range', 'carve_river', 'paint_landscape', 'move_landmass', 'reroll_region', 'set_climate', 'place_city', 'add_poi', 'add_label', 'rename', 'delete_object', 'regenerate_names']);
+  const MUTATING = new Set(['add_landmass', 'remove_land', 'add_mountain_range', 'carve_river', 'paint_landscape', 'move_landmass', 'reroll_region', 'set_climate', 'place_city', 'add_poi', 'build_wall', 'add_label', 'rename', 'delete_object', 'regenerate_names']);
   const STEP_TEXT = {
     view_map: 'Schaue mir die Karte an', get_overview: 'Lese die Übersicht', add_landmass: 'Schütte Land auf', remove_land: 'Versenke Land',
     add_mountain_range: 'Falte ein Gebirge auf', carve_river: 'Zeichne einen Fluss', paint_landscape: 'Lege eine Landschaft fest', move_landmass: 'Bewege eine Landmasse',
     reroll_region: 'Würfle eine Region neu', set_climate: 'Ändere das Klima', regenerate_world: 'Erschaffe eine neue Welt', place_city: 'Setze eine Stadt',
-    add_poi: 'Setze einen Ort', add_label: 'Setze eine Beschriftung', rename: 'Benenne um', delete_object: 'Lösche', regenerate_names: 'Vergebe Landschaftsnamen',
+    add_poi: 'Setze einen Ort', build_wall: 'Baue eine Mauer', add_label: 'Setze eine Beschriftung', rename: 'Benenne um', delete_object: 'Lösche', regenerate_names: 'Vergebe Landschaftsnamen',
   };
 
   // ---------- Chat ----------
