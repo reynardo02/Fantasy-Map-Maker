@@ -582,6 +582,7 @@
     const names = new FMM.NameGen(rng);
     generatePolitics(map, d, rng, p, names);
     map.labels = generateSeaLabels(map, d, rng, names);
+    map.labels.push(...FMM.generateRegionLabels(map, d, rng));
     return map;
   };
 

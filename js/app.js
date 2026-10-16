@@ -267,7 +267,14 @@
       const map = this.map;
       x = FMM.clamp(x, 0, map.width); y = FMM.clamp(y, 0, map.height);
       if (hit.type === 'city') { const c = map.cities.find((o) => o.id === hit.id); if (c) { c.x = x; c.y = y; } }
-      else if (hit.type === 'label') { const l = map.labels.find((o) => o.id === hit.id); if (l) { l.x = x; l.y = y; } }
+      else if (hit.type === 'label') {
+        const l = map.labels.find((o) => o.id === hit.id);
+        if (l) {
+          // Beschriftung entlang eines Pfads: ganzen Pfad mitverschieben
+          if (l.path) for (let k = 0; k < l.path.length; k += 2) { l.path[k] += x - l.x; l.path[k + 1] += y - l.y; }
+          l.x = x; l.y = y;
+        }
+      }
       else if (hit.type === 'state') { const s = map.states.find((o) => o.id === hit.id); if (s) { s.labelX = x; s.labelY = y; } }
     },
 
@@ -588,6 +595,17 @@
         reliefTimer = setTimeout(() => { this.renderer.renderBase(this.map, this.d); this.editor.requestDraw(); this.changed(); }, 60);
       });
 
+      $('btnRegionNames').onclick = () => {
+        this.history.push();
+        const map = this.map;
+        map.labels = map.labels.filter((l) => l.kind !== 'region' && l.kind !== 'river');
+        map.labels.push(...FMM.generateRegionLabels(map, this.d, FMM.makeRng(Math.random())));
+        if (this.selection && this.selection.type === 'label' && !this.findSelected()) this.select(null);
+        this.editor.requestDraw();
+        this.changed();
+        this.toast('Landschaftsnamen neu erzeugt');
+      };
+
       // Staaten
       $('btnAddState').onclick = () => this.addState();
       $('btnClearBiomes').onclick = () => {
@@ -805,25 +823,25 @@
           this.changed();
         };
       } else if (s.type === 'label') {
-        $('selTitle').textContent = obj.kind === 'sea' ? 'Meeresname' : 'Beschriftung';
+        $('selTitle').textContent = obj.kind === 'sea' ? 'Meeresname' : obj.kind === 'river' ? 'Flussname' : obj.kind === 'region' ? 'Landschaftsname' : 'Beschriftung';
         body.innerHTML = `<div class="form-grid">
           <span>Text</span><input id="selText" value="${esc(obj.text)}">
-          <span>Stil</span><select id="selKind">
+          ${obj.path ? '' : `<span>Stil</span><select id="selKind">
             <option value="custom" ${obj.kind === 'custom' && obj.font !== 'text' ? 'selected' : ''}>Titel (Kapitälchen)</option>
             <option value="text" ${obj.font === 'text' && obj.kind !== 'sea' ? 'selected' : ''}>Handschrift</option>
             <option value="sea" ${obj.kind === 'sea' ? 'selected' : ''}>Gewässer (kursiv)</option>
-          </select>
+          </select>`}
           <span>Größe</span><input id="selSize" type="range" min="6" max="72" value="${obj.size || 16}">
-          <span>Drehung</span><input id="selAngle" type="range" min="-90" max="90" value="${Math.round(((obj.angle || 0) * 180) / Math.PI)}">
+          ${obj.path ? '' : `<span>Drehung</span><input id="selAngle" type="range" min="-90" max="90" value="${Math.round(((obj.angle || 0) * 180) / Math.PI)}">`}
           <span>Farbe</span><span class="inline"><input id="selColor" type="color" value="${esc(obj.color || '#2a221c')}"><button id="selColorReset" title="Standardfarbe">Standard</button></span>
         </div>
         <div class="btn-row"><button id="selDelete" class="danger">🗑 Löschen</button></div>`;
         this.bindField($('selText'), (v) => { obj.text = v; });
         this.bindField($('selSize'), (v) => { obj.size = +v; });
-        this.bindField($('selAngle'), (v) => { obj.angle = (+v * Math.PI) / 180; });
+        if (!obj.path) this.bindField($('selAngle'), (v) => { obj.angle = (+v * Math.PI) / 180; });
         this.bindField($('selColor'), (v) => { obj.color = v; });
         $('selColorReset').onclick = () => { this.history.push(); delete obj.color; this.editor.requestDraw(); this.changed(); };
-        $('selKind').addEventListener('change', (e) => {
+        if (!obj.path) $('selKind').addEventListener('change', (e) => {
           this.history.push();
           const v = e.target.value;
           obj.kind = v === 'sea' ? 'sea' : 'custom';

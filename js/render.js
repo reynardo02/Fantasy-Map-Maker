@@ -72,6 +72,14 @@
   };
   FMM.STYLE = STYLE;
 
+  // Schriftfarben für Landschafts- und Flussnamen je Stil
+  const REGION_INK = {
+    geo: { gebirge: '#3a2e22', wald: '#1f3a1c', wueste: '#5e3c1c', sumpf: '#2e3a26', see: '#1c3a5c', fluss: '#1c4a78' },
+    fantasy: { gebirge: '#4a3826', wald: '#22401e', wueste: '#6e4220', sumpf: '#34402a', see: '#1f3f66', fluss: '#1f4f80' },
+    political: { gebirge: '#4a3e34', wald: '#3e4a34', wueste: '#5e4a34', sumpf: '#3e4a3a', see: '#2c4a66', fluss: '#2c5478' },
+    antique: { gebirge: '#3b2a18', wald: '#3b2a18', wueste: '#3b2a18', sumpf: '#3b2a18', see: '#3b2a18', fluss: '#3b2a18' },
+  };
+
   const FONT_LABEL = '"Cinzel", "Trajan Pro", Georgia, serif';
   const FONT_TEXT = '"IM Fell English", "Palatino Linotype", Georgia, serif';
 
@@ -710,6 +718,23 @@
       if (L.labels) {
         for (const lb of map.labels) {
           const size = (lb.size || 14) * unit;
+          if (lb.path && lb.path.length >= 4) {
+            // Landschafts- und Flussnamen folgen ihrem Pfad
+            const sub = lb.kind === 'river' ? 'fluss' : lb.sub;
+            const ink = (REGION_INK[sty] || REGION_INK.geo)[sub] || st.text;
+            const caps = sub === 'gebirge';
+            const box = this.drawTextOnPath(ctx, lb.text, lb.path, {
+              font: `${caps ? '600 ' : 'italic '}${size}px ${caps ? FONT_LABEL : FONT_TEXT}`,
+              color: lb.color || ink,
+              halo: st.halo,
+              haloWidth: size * 0.15,
+              spacing: size * (caps ? 0.35 : sub === 'fluss' || sub === 'see' ? 0.1 : 0.2),
+              alpha: 0.9,
+            });
+            this.hitBoxes.push({ type: 'label', id: lb.id, ...box });
+            if (opts.selection && opts.selection.type === 'label' && opts.selection.id === lb.id) this.drawSelBox(ctx, box, view);
+            continue;
+          }
           const sea = lb.kind === 'sea';
           const box = this.drawText(ctx, sea ? spaced(lb.text) : lb.text, lb.x, lb.y, {
             font: `${sea ? 'italic ' : ''}${lb.bold ? '700 ' : ''}${size}px ${sea ? FONT_TEXT : lb.font === 'text' ? FONT_TEXT : FONT_LABEL}`,
@@ -763,6 +788,67 @@
       ctx.fillText(text, shift, 0);
       ctx.restore();
       return { x, y, w, h: size * 1.2, angle: o.angle || 0 };
+    }
+
+    // Text entlang einer Polylinie [x0, y0, x1, y1, …]; Buchstaben einzeln nach der Tangente gedreht
+    drawTextOnPath(ctx, text, path, o) {
+      let p = path;
+      // Schrift nie kopfüber: Pfad von links nach rechts lesen
+      if (p[p.length - 2] < p[0]) { const q = []; for (let k = p.length - 2; k >= 0; k -= 2) q.push(p[k], p[k + 1]); p = q; }
+      p = chaikin2(chaikin2(p));
+      const n = p.length / 2, cum = [0];
+      for (let k = 1; k < n; k++) cum.push(cum[k - 1] + Math.hypot(p[2 * k] - p[2 * k - 2], p[2 * k + 1] - p[2 * k - 1]));
+      const L = cum[n - 1];
+      // Punkt auf dem Pfad bei Bogenlänge s (außerhalb: geradlinig verlängert)
+      const at = (sv) => {
+        let k = 1;
+        while (k < n - 1 && cum[k] < sv) k++;
+        const seg = (cum[k] - cum[k - 1]) || 1;
+        const f = (sv - cum[k - 1]) / seg;
+        return [p[2 * k - 2] + (p[2 * k] - p[2 * k - 2]) * f, p[2 * k - 1] + (p[2 * k + 1] - p[2 * k - 1]) * f];
+      };
+      ctx.save();
+      ctx.font = o.font;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
+      const chars = [...text];
+      const sp = o.spacing || 0;
+      const ws = chars.map((ch) => ctx.measureText(ch).width);
+      const total = ws.reduce((a, b) => a + b, 0) + sp * (chars.length - 1);
+      const size = parseFloat(/(\d+(\.\d+)?)px/.exec(o.font)[1]);
+      let sPos = (L - total) / 2;
+      const place = [];
+      for (let k = 0; k < chars.length; k++) {
+        const c = sPos + ws[k] / 2;
+        const d = Math.max(ws[k] / 2, size * 0.3);
+        const a = at(c - d), b = at(c + d), m = at(c);
+        place.push([m[0], m[1], Math.atan2(b[1] - a[1], b[0] - a[0])]);
+        sPos += ws[k] + sp;
+      }
+      const base = ctx.getTransform();
+      const pass = (stroke) => {
+        for (let k = 0; k < chars.length; k++) {
+          if (chars[k] === ' ') continue;
+          const [x, y, ang] = place[k];
+          ctx.setTransform(base.a, base.b, base.c, base.d, base.e, base.f);
+          ctx.translate(x, y);
+          ctx.rotate(ang);
+          if (stroke) ctx.strokeText(chars[k], 0, 0); else ctx.fillText(chars[k], 0, 0);
+        }
+      };
+      if (o.halo) {
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = o.haloWidth || 3;
+        ctx.strokeStyle = o.halo;
+        pass(true);
+      }
+      ctx.fillStyle = o.color;
+      pass(false);
+      ctx.restore();
+      const mid = at(L / 2), a0 = at(L / 2 - total / 4), a1 = at(L / 2 + total / 4);
+      return { x: mid[0], y: mid[1], w: total, h: size * 1.3, angle: Math.atan2(a1[1] - a0[1], a1[0] - a0[0]) };
     }
 
     drawSelBox(ctx, box, view) {
@@ -984,6 +1070,19 @@
       }
     }
     out.push(p[4 * n - 4], p[4 * n - 3], p[4 * n - 2], p[4 * n - 1]);
+    return out;
+  }
+
+  // Chaikin-Glättung für Punktpaare [x, y, …]; Endpunkte bleiben
+  function chaikin2(p) {
+    const n = p.length / 2;
+    if (n < 3) return p;
+    const out = [p[0], p[1]];
+    for (let k = 0; k < n - 1; k++) {
+      const a = 2 * k, b = a + 2;
+      out.push(p[a] * 0.75 + p[b] * 0.25, p[a + 1] * 0.75 + p[b + 1] * 0.25, p[a] * 0.25 + p[b] * 0.75, p[a + 1] * 0.25 + p[b + 1] * 0.75);
+    }
+    out.push(p[2 * n - 2], p[2 * n - 1]);
     return out;
   }
 
