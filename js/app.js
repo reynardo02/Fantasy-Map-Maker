@@ -67,7 +67,8 @@
 
     // ---------- Karte setzen / generieren ----------
     generate(params) {
-      this.busy(true, 'Erschaffe Welt …');
+      const big = (params.width || 1200) * (params.height || 750) > 2e6;
+      this.busy(true, big ? 'Erschaffe Welt … (große Karten brauchen etwas länger)' : 'Erschaffe Welt …');
       setTimeout(() => {
         try {
           const map = FMM.generateMap(params);
@@ -265,7 +266,9 @@
       $('status').textContent = 'Ungespeicherte Änderungen …';
       this.savePending = true;
       clearTimeout(this.saveTimer);
-      this.saveTimer = setTimeout(() => this.autosave(), immediate ? 200 : 1500);
+      // große Karten seltener automatisch sichern (Speichern dauert dort spürbar)
+      const delay = this.map.width * this.map.height > 2e6 ? 5000 : 1500;
+      this.saveTimer = setTimeout(() => this.autosave(), immediate ? 200 : delay);
       clearTimeout(this.uiTimer);
       this.uiTimer = setTimeout(() => { this.renderStateList(); this.renderMapInfo(); }, 150);
     },
