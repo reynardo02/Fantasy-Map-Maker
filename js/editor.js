@@ -5,6 +5,7 @@
 
   const TERRAIN_TOOLS = new Set(['raise', 'lower', 'smooth', 'flatten', 'land', 'sea', 'mountain']);
   const BRUSH_TOOLS = new Set([...TERRAIN_TOOLS, 'state', 'biome']);
+  const SHAPE_TOOLS = new Set(['sketch', 'range', 'river', 'move', 'reroll']);
 
   const HINTS = {
     pan: 'Ziehen zum Verschieben · Mausrad zum Zoomen · Klick auf Stadt/Text zum Auswählen',
@@ -20,6 +21,11 @@
     city: 'Klick auf freie Fläche: neue Stadt · Klick auf Stadt: auswählen · Ziehen: verschieben',
     label: 'Klick auf freie Fläche: neuer Text · Klick auf Text/Staatsnamen: auswählen · Ziehen: verschieben',
     poi: 'Klick auf freie Fläche: neuer Ort (Typ rechts wählen) · Klick auf Ort: auswählen · Ziehen: verschieben',
+    sketch: 'Umriss zeichnen → Land entsteht · mit Shift: Land versenken',
+    range: 'Punkte klicken → Gebirgszug · Doppelklick oder Enter: fertig · Esc: abbrechen · Breite/Höhe: Pinsel-Regler',
+    river: 'Flusslauf von der Quelle zur Mündung zeichnen',
+    move: 'Landmasse anklicken · Ziehen: verschieben · Mausrad: drehen · Shift+Mausrad: skalieren · Enter: übernehmen · Esc: abbrechen',
+    reroll: 'Rechteck aufziehen → Bereich wird neu generiert',
   };
 
   class History {
@@ -53,7 +59,7 @@
         stateMap: this.cache.s.a,
         bv: app.biomeVersion,
         biomeMap: this.cache.b.a,
-        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, pois: map.pois || [], subtitle: map.subtitle || '', settings: map.settings }),
+        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, pois: map.pois || [], springs: map.springs || [], subtitle: map.subtitle || '', settings: map.settings }),
       };
     }
     push() {
@@ -79,7 +85,7 @@
       if (snap.sv !== app.stateVersion) { map.stateMap = snap.stateMap.slice(); app.stateVersion = snap.sv; this.cache.s = { v: snap.sv, a: snap.stateMap }; }
       if (snap.bv !== app.biomeVersion) { map.biomeMap = snap.biomeMap.slice(); app.biomeVersion = snap.bv; this.cache.b = { v: snap.bv, a: snap.biomeMap }; }
       const o = JSON.parse(snap.json);
-      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.pois = o.pois || []; map.subtitle = o.subtitle || ''; map.settings = o.settings;
+      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.pois = o.pois || []; map.springs = o.springs || []; map.subtitle = o.subtitle || ''; map.settings = o.settings;
       app.afterRestore(terrainChanged);
     }
     undo() {
@@ -94,6 +100,21 @@
       this.restore(this.redoStack.pop());
       this.app.updateUndoButtons();
     }
+  }
+
+  // Randzellen einer Landmasse (für die Vorschau beim Verschieben), höchstens ~6000 Punkte
+  function outlineOf(lm, W) {
+    const { mask, rect } = lm;
+    const pts = [];
+    for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
+      const i = y * W + x;
+      if (!mask[i]) continue;
+      if (!mask[i - 1] || !mask[i + 1] || !mask[i - W] || !mask[i + W]) pts.push(x + 0.5, y + 0.5);
+    }
+    if (pts.length <= 12000) return pts;
+    const step = Math.ceil(pts.length / 12000) * 2, out = [];
+    for (let k = 0; k < pts.length; k += step) out.push(pts[k], pts[k + 1]);
+    return out;
   }
 
   class Editor {
@@ -120,6 +141,8 @@
       canvas.addEventListener('pointerleave', () => { this.mouse = null; this.requestDraw(); document.getElementById('coords').textContent = ''; });
       canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
       canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+      canvas.addEventListener('dblclick', (e) => this.onDblClick(e));
+      this.shape = null; // laufende Form (Gebirgslinie, Verschieben)
       window.addEventListener('keydown', (e) => this.onKey(e, true));
       window.addEventListener('keyup', (e) => this.onKey(e, false));
     }
@@ -167,6 +190,7 @@
     }
 
     setTool(tool) {
+      if (this.shape && this.shape.kind !== tool) this.cancelShape();
       this.tool = tool;
       document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool));
       document.getElementById('hint').textContent = HINTS[tool] || '';
@@ -180,6 +204,8 @@
       if (this.spaceDown || this.tool === 'pan') c = this.pointer && this.pointer.kind === 'pan' ? 'grabbing' : 'grab';
       else if (BRUSH_TOOLS.has(this.tool)) c = 'none';
       else if (this.tool === 'city' || this.tool === 'label' || this.tool === 'poi') c = 'crosshair';
+      else if (this.tool === 'move') c = this.shape ? 'move' : 'pointer';
+      else if (SHAPE_TOOLS.has(this.tool)) c = 'crosshair';
       this.canvas.style.cursor = c;
     }
 
@@ -230,6 +256,7 @@
       ctx.imageSmoothingQuality = v.scale < 1 ? 'medium' : 'high';
       ctx.drawImage(app.renderer.base, v.ox, v.oy, app.map.width * v.scale, app.map.height * v.scale);
       app.renderer.drawOverlay(ctx, app.map, app.d, v, { selection: app.selection, dpr });
+      if (this.shape || (this.pointer && (this.pointer.kind === 'stroke' || this.pointer.kind === 'rect'))) this.drawShapePreview(ctx);
 
       // Pinselvorschau
       if (this.mouse && BRUSH_TOOLS.has(this.tool) && !this.spaceDown) {
@@ -250,6 +277,13 @@
       e.preventDefault();
       const { sx, sy } = this.eventPos(e);
       const delta = e.deltaMode === 1 ? e.deltaY * 30 : e.deltaY;
+      if (this.shape && this.shape.kind === 'move' && !e.ctrlKey) {
+        // Landmasse drehen bzw. skalieren statt zoomen
+        if (e.shiftKey) this.shape.scale = FMM.clamp(this.shape.scale * Math.pow(1.0012, -delta), 0.3, 3);
+        else this.shape.angle += delta * 0.0015;
+        this.requestDraw();
+        return;
+      }
       this.zoomAt(sx, sy, Math.pow(1.0015, -delta));
     }
 
@@ -267,9 +301,10 @@
       else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); this.app.history.redo(); }
       else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); this.app.saveFile(); }
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (this.app.selection) { e.preventDefault(); this.app.deleteSelection(); } }
-      else if (e.key === 'Escape') this.app.select(null);
+      else if (e.key === 'Escape') { if (this.shape) this.cancelShape(); else this.app.select(null); this.app.closeContextMenu(); }
+      else if (e.key === 'Enter' && this.shape) { e.preventDefault(); this.finishShape(); }
       else if (!mod) {
-        const keys = { v: 'pan', h: 'raise', t: 'lower', g: 'smooth', e: 'flatten', l: 'land', m: 'sea', b: 'mountain', p: 'state', w: 'biome', c: 'city', x: 'label', o: 'poi' };
+        const keys = { v: 'pan', h: 'raise', t: 'lower', g: 'smooth', e: 'flatten', l: 'land', m: 'sea', b: 'mountain', p: 'state', w: 'biome', c: 'city', x: 'label', o: 'poi', k: 'sketch', r: 'range', f: 'river', u: 'move', n: 'reroll' };
         const k = keys[e.key.toLowerCase()];
         if (k) this.setTool(k);
         else if (e.key === '+') this.zoomAt(this.cssW / 2, this.cssH / 2, 1.25);
@@ -295,12 +330,15 @@
           this.app.select(hit);
           this.pointer = { kind: 'drag', hit, start: m, moved: false };
         } else {
-          this.pointer = { kind: 'pan', sx, sy, ox: this.view.ox, oy: this.view.oy, click: e.button === 0 };
+          this.pointer = { kind: 'pan', sx, sy, ox: this.view.ox, oy: this.view.oy, click: e.button === 0 || e.button === 2, button: e.button, m };
         }
         this.updateCursor();
         return;
       }
       if (e.button !== 0) return;
+      this.app.closeContextMenu();
+
+      if (SHAPE_TOOLS.has(this.tool)) { this.shapeDown(e, m); return; }
 
       if (BRUSH_TOOLS.has(this.tool)) {
         this.app.history.push();
@@ -357,7 +395,20 @@
       const m = this.toMap(sx, sy);
       this.app.showCoords(m.x, m.y);
       const p = this.pointer;
-      if (!p) { if (BRUSH_TOOLS.has(this.tool)) this.requestDraw(); return; }
+      if (!p) { if (BRUSH_TOOLS.has(this.tool) || (this.shape && this.shape.kind === 'range')) this.requestDraw(); return; }
+      if (p.kind === 'stroke') {
+        const last = p.pts[p.pts.length - 1];
+        if (Math.hypot(m.x - last[0], m.y - last[1]) * this.view.scale > 4) p.pts.push([m.x, m.y]);
+        this.requestDraw();
+        return;
+      }
+      if (p.kind === 'rect') { p.b = m; this.requestDraw(); return; }
+      if (p.kind === 'movedrag') {
+        this.shape.dx = p.dx0 + (m.x - p.start.x);
+        this.shape.dy = p.dy0 + (m.y - p.start.y);
+        this.requestDraw();
+        return;
+      }
       if (p.kind === 'pan') {
         this.view.ox = p.ox + (sx - p.sx);
         this.view.oy = p.oy + (sy - p.sy);
@@ -391,7 +442,9 @@
       try { this.canvas.releasePointerCapture(e.pointerId); } catch (err) { /* egal */ }
       this.updateCursor();
       if (!p) return;
+      if (p.kind === 'pan' && p.click && p.button === 2) { this.app.openContextMenu(e.clientX, e.clientY, p.m); return; }
       if (p.kind === 'pan' && p.click && this.tool === 'pan') this.app.select(null);
+      if (p.kind === 'stroke' || p.kind === 'rect') { this.shapeUp(p); this.requestDraw(); return; }
       if (p.kind === 'brush') {
         this.app.renderer.live = null;
         this.flushDirty();
@@ -400,6 +453,122 @@
         else this.app.afterStateEdit();
       }
       if (p.kind === 'drag' && p.moved) this.app.changed();
+    }
+
+    // ---------- Form-Werkzeuge ----------
+    shapeDown(e, m) {
+      const tool = this.tool;
+      if (tool === 'sketch' || tool === 'river') {
+        this.pointer = { kind: 'stroke', pts: [[m.x, m.y]], remove: e.shiftKey };
+      } else if (tool === 'reroll') {
+        this.pointer = { kind: 'rect', a: m, b: m };
+      } else if (tool === 'range') {
+        if (e.detail >= 2) return; // Doppelklick schließt ab (siehe onDblClick)
+        if (!this.shape) this.shape = { kind: 'range', pts: [] };
+        this.shape.pts.push([m.x, m.y]);
+        this.app.renderShapeCard();
+      } else if (tool === 'move') {
+        if (!this.shape) {
+          const lm = FMM.Sculpt.landmassAt(this.app.map, m.x, m.y);
+          if (!lm) { this.app.toast('Hier ist keine Landmasse'); return; }
+          this.shape = { kind: 'move', lm, outline: outlineOf(lm, this.app.map.width), dx: 0, dy: 0, angle: 0, scale: 1 };
+          this.app.renderShapeCard();
+          this.updateCursor();
+        }
+        this.pointer = { kind: 'movedrag', start: m, dx0: this.shape.dx, dy0: this.shape.dy };
+      }
+      this.requestDraw();
+    }
+
+    shapeUp(p) {
+      const app = this.app, S = FMM.Sculpt;
+      if (p.kind === 'stroke') {
+        if (this.tool === 'sketch') {
+          if (p.pts.length < 3) return;
+          app.applySculpt(p.remove ? 'Land versenkt' : 'Land erschaffen', (map) => (p.remove ? S.removeLand(map, p.pts) : S.addLandmass(map, p.pts, { relief: 'huegelig' })));
+        } else if (this.tool === 'river') {
+          if (p.pts.length < 2) return;
+          app.applySculpt('Fluss gezeichnet', (map) => S.carveRiver(map, p.pts));
+        }
+      } else if (p.kind === 'rect') {
+        const x0 = Math.min(p.a.x, p.b.x), x1 = Math.max(p.a.x, p.b.x), y0 = Math.min(p.a.y, p.b.y), y1 = Math.max(p.a.y, p.b.y);
+        if ((x1 - x0) * this.view.scale < 8 || (y1 - y0) * this.view.scale < 8) return;
+        this.lastReroll = S.rectPolygon(x0, y0, x1, y1);
+        app.rerollRegion(this.lastReroll);
+      }
+    }
+
+    finishShape() {
+      const sh = this.shape;
+      if (!sh) return;
+      const app = this.app, S = FMM.Sculpt;
+      this.shape = null;
+      if (sh.kind === 'range' && sh.pts.length >= 2) {
+        const width = Math.max(4, this.brush.size * 0.9), height = 0.25 + this.brush.strength * 0.7;
+        app.applySculpt('Gebirgszug erschaffen', (map) => S.addMountainRange(map, sh.pts, { width, height }));
+      } else if (sh.kind === 'move' && (sh.dx || sh.dy || sh.angle || sh.scale !== 1)) {
+        app.applySculpt('Landmasse verschoben', (map) => S.transformLandmass(map, sh.lm, { dx: sh.dx, dy: sh.dy, angle: sh.angle, scale: sh.scale }));
+      }
+      app.renderShapeCard();
+      this.updateCursor();
+      this.requestDraw();
+    }
+
+    cancelShape() {
+      this.shape = null;
+      this.app.renderShapeCard();
+      this.updateCursor();
+      this.requestDraw();
+    }
+
+    onDblClick(e) {
+      if (this.tool === 'range' && this.shape) { this.finishShape(); return; }
+      const { sx, sy } = this.eventPos(e);
+      const m = this.toMap(sx, sy);
+      const hit = this.hitTest(m.x, m.y, ['city', 'poi', 'label', 'state']);
+      if (hit) { this.app.select(hit); this.app.focusName(); }
+    }
+
+    // Vorschau der Form-Werkzeuge in Kartenkoordinaten
+    drawShapePreview(ctx) {
+      const v = this.view, dpr = this.dpr, p = this.pointer, sh = this.shape;
+      ctx.save();
+      ctx.setTransform(dpr * v.scale, 0, 0, dpr * v.scale, dpr * v.ox, dpr * v.oy);
+      const lw = 1 / v.scale;
+      const stroke = (path, closed, color) => {
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        path.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        if (closed) ctx.closePath();
+        ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 4 * lw; ctx.stroke();
+        ctx.setLineDash([6 * lw, 4 * lw]);
+        ctx.strokeStyle = color; ctx.lineWidth = 2 * lw; ctx.stroke();
+      };
+      if (p && p.kind === 'stroke') {
+        const color = this.tool === 'river' ? '#7ec8ff' : p.remove ? '#ff8a7a' : '#ffe08a';
+        stroke(p.pts, this.tool === 'sketch', color);
+      }
+      if (p && p.kind === 'rect') stroke([[p.a.x, p.a.y], [p.b.x, p.a.y], [p.b.x, p.b.y], [p.a.x, p.b.y]], true, '#d9b3ff');
+      if (sh && sh.kind === 'range') {
+        const pts = sh.pts.slice();
+        if (this.mouse && !this.pointer) { const m = this.toMap(this.mouse.sx, this.mouse.sy); pts.push([m.x, m.y]); }
+        stroke(pts, false, '#e8c9a0');
+        ctx.fillStyle = '#e8c9a0';
+        for (const [x, y] of sh.pts) { ctx.beginPath(); ctx.arc(x, y, 3 * lw, 0, Math.PI * 2); ctx.fill(); }
+      }
+      if (sh && sh.kind === 'move') {
+        const { lm, dx, dy, angle, scale } = sh;
+        const ca = Math.cos(angle), sa = Math.sin(angle);
+        ctx.fillStyle = 'rgba(255,224,138,0.95)';
+        const s = Math.max(1, 1.5 * lw);
+        for (let k = 0; k < sh.outline.length; k += 2) {
+          const ux = (sh.outline[k] - lm.cx) * scale, uy = (sh.outline[k + 1] - lm.cy) * scale;
+          ctx.fillRect(lm.cx + dx + ux * ca - uy * sa - s / 2, lm.cy + dy + ux * sa + uy * ca - s / 2, s, s);
+        }
+      }
+      ctx.restore();
     }
 
     // ---------- Pinsel ----------

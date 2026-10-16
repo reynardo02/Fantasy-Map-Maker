@@ -19,6 +19,7 @@
       <button id="btnOpen" title="Karte aus Datei öffnen (.fmap)">📂 Öffnen</button>
       <button id="btnSave" title="Karte als Datei speichern (.fmap) – zum späteren Weiterbearbeiten">💾 Datei speichern</button>
       <button id="btnExport" title="Karte als Bild exportieren">🖼️ PNG</button>
+      <button id="btnAi" class="ai-btn" title="Beschreibe deine Welt – Claude setzt sie um">✨ KI-Assistent</button>
       <span class="sep"></span>
       <button id="btnUndo" title="Rückgängig (Strg+Z)">↶</button>
       <button id="btnRedo" title="Wiederholen (Strg+Y)">↷</button>
@@ -45,6 +46,14 @@
         <button class="tool" data-tool="biome" title="Landschaftsform malen: Wald, Wüste, Sumpf … (W)"><span>🌲</span>Landschaft</button>
       </div>
       <div class="tool-group">
+        <div class="group-title">Formen</div>
+        <button class="tool" data-tool="sketch" title="Umriss zeichnen → natürliches Land (K) · Shift: versenken"><span>✏️</span>Skizze</button>
+        <button class="tool" data-tool="range" title="Gebirgszug als Linie klicken (R)"><span>🗻</span>Gebirgslinie</button>
+        <button class="tool" data-tool="river" title="Flusslauf zeichnen (F)"><span>💧</span>Fluss</button>
+        <button class="tool" data-tool="move" title="Landmasse verschieben, drehen, skalieren (U)"><span>🧭</span>Verschieben</button>
+        <button class="tool" data-tool="reroll" title="Bereich neu generieren (N)"><span>🎲</span>Neu würfeln</button>
+      </div>
+      <div class="tool-group">
         <div class="group-title">Politik</div>
         <button class="tool" data-tool="state" title="Gebiet einem Staat zuweisen"><span>🖌️</span>Staat malen</button>
         <button class="tool" data-tool="city" title="Städte setzen, auswählen, verschieben"><span>🏰</span>Städte</button>
@@ -66,6 +75,30 @@
       <canvas id="mapCanvas"></canvas>
       <div class="hint" id="hint"></div>
       <div class="coords" id="coords"></div>
+      <div class="ctx-menu" id="ctxMenu" hidden></div>
+      <div class="ai-panel" id="aiPanel" hidden>
+        <div class="ai-head">
+          <b>✨ KI-Assistent</b>
+          <span class="ai-model">Claude Opus 5.5</span>
+          <button id="aiNew" title="Neues Gespräch">🗒</button>
+          <button id="aiSettingsBtn" title="Einstellungen (API-Schlüssel)">⚙</button>
+          <button id="aiClose" title="Schließen">✕</button>
+        </div>
+        <div class="ai-settings" id="aiSettings" hidden>
+          <label>Anthropic-API-Schlüssel
+            <input id="aiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+          </label>
+          <p>Der Schlüssel bleibt nur in diesem Browser gespeichert und wird ausschließlich an <b>api.anthropic.com</b> gesendet. Jede Nachricht kostet je nach Umfang einige Cent über deinen Schlüssel. Einen Schlüssel bekommst du in der <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Anthropic Console</a>.</p>
+          <p>Lehnt Claude eine Anfrage ab, übernimmt automatisch ein anderes Claude-Modell.</p>
+          <div class="btn-row"><button id="aiKeySave" class="primary">Speichern</button><button id="aiKeyRemove">Schlüssel löschen</button></div>
+        </div>
+        <div class="ai-log" id="aiLog"></div>
+        <div class="ai-status" id="aiStatus"></div>
+        <div class="ai-input">
+          <textarea id="aiInput" rows="3" placeholder="Beschreibe, was sich auf der Karte ändern soll … (Enter senden, Shift+Enter neue Zeile)"></textarea>
+          <button id="aiSend" class="primary">Senden</button>
+        </div>
+      </div>
       <div class="zoom">
         <button id="zoomIn" title="Hineinzoomen">＋</button>
         <button id="zoomFit" title="Ganze Karte">⤢</button>
@@ -116,6 +149,12 @@
         <div class="btn-row">
           <button id="btnRegionNames" title="Gebirge, Wälder, Wüsten, Sümpfe, Seen und große Flüsse neu benennen">🏷 Landschaftsnamen neu erzeugen</button>
         </div>
+      </section>
+
+      <section class="card" id="shapeCard" hidden>
+        <h3 id="shapeTitle">Form</h3>
+        <div class="info" id="shapeInfo"></div>
+        <div class="btn-row" id="shapeButtons"></div>
       </section>
 
       <section class="card" id="poiCard" hidden>
@@ -240,6 +279,7 @@
   <script src="js/climate.js"></script>
   <script src="js/regions.js"></script>
   <script src="js/pois.js"></script>
+  <script src="js/sculpt.js"></script>
   <script src="js/generator.js"></script>
   <script src="js/contours.js"></script>
   <script src="js/roads.js"></script>
@@ -248,6 +288,7 @@
   <script src="js/render.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/editor.js"></script>
+  <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
