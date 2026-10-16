@@ -61,7 +61,7 @@
         // Landschaftsform an dieser Stelle (gemalte Übermalung hat Vorrang)
         let bi = map.biomeMap[i];
         if (bi === 255) {
-          const t = FMM.cellTemp(d.latT[y], v);
+          const t = FMM.cellTemp(d.latT[y], v, d.tempA[i]);
           const slope = Math.hypot(Math.max(0, h[i + 1]) - Math.max(0, h[i - 1]), Math.max(0, h[i + W]) - Math.max(0, h[i - W])) * 40 * (W / 1200);
           bi = FMM.classifyBiome(t, map.moisture[i], v, slope, d.riverDist[i], veg[i], fine[i]);
         }
@@ -128,7 +128,7 @@
         if (d.curv[i] < -0.006 && rr < 0.8) continue;
         if (v < 0.52 && rr < 0.45) continue;
         const s = (4.6 + (v - 0.42) * 16) * unit * (0.8 + rr * 0.4);
-        const snowLine = FMM.clamp(0.58 + (d.latT[y] - 0.3) * 0.7, 0.36, 0.95);
+        const snowLine = FMM.clamp(0.58 + (d.latT[y] + d.tempA[i] - 0.3) * 0.7, 0.36, 0.95);
         const snow = FMM.clamp((v - snowLine + 0.06) / 0.14, 0, 1);
         relief.push({ t: 'gipfel', x: x + 0.5, y: y + 0.5, s, r: FMM.hash2(x, y), r2: FMM.hash2(y + 7, x), snow });
         mark(x, y, s, 1.6);

@@ -128,11 +128,12 @@
       this.borderCache = null;
       this.roadCache = null;
       this.symbolCache = null;
+      this.currentCache = null;
       this.live = null;
     }
 
     // Gelände geändert: Flüsse, Küsten, Grenzen und Straßen neu aufbauen
-    invalidateRivers() { this.riverCache = null; this.coastCache = null; this.borderCache = null; this.roadCache = null; this.symbolCache = null; }
+    invalidateRivers() { this.riverCache = null; this.coastCache = null; this.borderCache = null; this.roadCache = null; this.symbolCache = null; this.currentCache = null; }
     invalidateSymbols() { this.symbolCache = null; }
     invalidateBorders() { this.borderCache = null; }
     invalidateRoads() { this.roadCache = null; this.symbolCache = null; }
@@ -150,7 +151,7 @@
       const style = map.view.style;
       const L = map.view.layers;
       const h = map.heights, moist = map.moisture, sm = map.stateMap;
-      const lake = d.lake, cd = d.coastDist, bd = d.borderDist, latT = d.latT;
+      const lake = d.lake, cd = d.coastDist, bd = d.borderDist, latT = d.latT, tA = d.tempA;
       const paper = this.paper, veg = this.veg, fine = this.fine, biome = this.biome;
       const rdist = d.riverDist, bmap = map.biomeMap, curv = d.curv;
       const px = this.img.data;
@@ -204,7 +205,7 @@
             if (hv < 0 || lake[i]) { biome[i] = 255; fb[i] = 0; continue; }
             const ov = bmap[i];
             const sl = Math.sqrt(gxC[i] * gxC[i] + gyC[i] * gyC[i]) * slopeK;
-            const bi = ov !== 255 ? ov : FMM.classifyBiome(FMM.cellTemp(latT[y], hv), moist[i], hv, sl, rdist[i], veg[i], fine[i]);
+            const bi = ov !== 255 ? ov : FMM.classifyBiome(FMM.cellTemp(latT[y], hv, tA[i]), moist[i], hv, sl, rdist[i], veg[i], fine[i]);
             biome[i] = bi;
             fb[i] = forest[bi] ? 1 : 0;
           }
@@ -248,6 +249,7 @@
           const h00 = h[i00], h10 = h[i10], h01 = h[i01], h11 = h[i11];
           const hv = h00 * w00 + h10 * w10 + h01 * w01 + h11 * w11;
           const ocean = hv < 0;
+          const lta = lt + tA[i00] * w00 + tA[i10] * w10 + tA[i01] * w01 + tA[i11] * w11; // inkl. Meeresströmung
           const isLake = !ocean && lake[i00] * w00 + lake[i10] * w10 + lake[i01] * w01 + lake[i11] * w11 >= 0.5;
           let r, g, b;
 
@@ -281,19 +283,19 @@
               if (depth < 0.012) { const f = (0.012 - depth) / 0.012 * 0.45; r += (205 - r) * f; g += (232 - g) * f; b += (230 - b) * f; }
               const fo = fine[i00] * w00 + fine[i10] * w10 + fine[i01] * w01 + fine[i11] * w11;
               // Watt: flaches Küstenmeer in gemäßigten Breiten, bei Ebbe trockenfallender Schlick
-              if (depth < 0.03 && cdi < 8 && lt > 0.22 && lt < 0.62) {
+              if (depth < 0.03 && cdi < 8 && lta > 0.22 && lta < 0.62) {
                 const gm = Math.sqrt(gx * gx + gy * gy);
                 const f = (1 - depth / 0.03) * (1 - FMM.smoothstep(0.002, 0.009, gm)) * (0.45 + 0.2 * fo);
                 if (f > 0) { r += (156 - r) * f; g += (150 - g) * f; b += (120 - b) * f; }
               }
               // Tropen: türkisfarbene Lagunen und ein Saumriff mit Lücken
-              if (lt > 0.68 && depth < 0.07) {
-                const wt = FMM.smoothstep(0.68, 0.8, lt);
+              if (lta > 0.68 && depth < 0.07) {
+                const wt = FMM.smoothstep(0.68, 0.8, lta);
                 const f = (1 - depth / 0.07) * 0.75 * wt;
                 r += (62 - r) * f; g += (196 - g) * f; b += (190 - b) * f;
                 if (depth > 0.038 && depth < 0.05 && fo > 0.05) { const q = 0.55 * wt; r += (214 - r) * q; g += (236 - g) * q; b += (222 - b) * q; }
               }
-              if (lt < 0.06) { const f = FMM.smoothstep(0.06, -0.04, lt) * 0.85; r += (226 - r) * f; g += (236 - g) * f; b += (242 - b) * f; }
+              if (lta < 0.06) { const f = FMM.smoothstep(0.06, -0.04, lta) * 0.85; r += (226 - r) * f; g += (236 - g) * f; b += (242 - b) * f; }
             } else if (sty === 3) {
               // Aquarell-Meer: tiefes Blau, zur Küste hin hell und türkis, wolkig gemalt
               const dd = FMM.smoothstep(0.03, 0.6, depth);
@@ -304,7 +306,12 @@
               const pv = veg[i00] * w00 + veg[i10] * w10 + veg[i01] * w01 + veg[i11] * w11;
               const kw = 1 + paper[i] * 0.07 + pv * 0.05;
               r *= kw; g *= kw; b *= kw;
-              if (lt < 0.06) { const f = FMM.smoothstep(0.06, -0.04, lt) * 0.8; r += (232 - r) * f; g += (240 - g) * f; b += (244 - b) * f; }
+              // Flachwasser über Riffen und in Lagunen (in den Tropen türkis)
+              if (depth < 0.04) {
+                const f = (1 - depth / 0.04) * 0.6, tr = FMM.smoothstep(0.6, 0.78, lta);
+                r += (150 - 40 * tr - r) * f; g += (206 + 6 * tr - g) * f; b += (204 - r * 0 - b) * f;
+              }
+              if (lta < 0.06) { const f = FMM.smoothstep(0.06, -0.04, lta) * 0.8; r += (232 - r) * f; g += (240 - g) * f; b += (244 - b) * f; }
             } else if (sty === 1) {
               r = 170 - depth * 40; g = 205 - depth * 35; b = 224 - depth * 20;
               if (Math.abs(cdi - 3) < 0.35 || Math.abs(cdi - 8) < 0.35 || Math.abs(cdi - 15) < 0.35) { r -= 24; g -= 18; b -= 10; }
@@ -319,8 +326,19 @@
             else if (sty === 1) { r = 150; g = 192; b = 214; }
             else if (sty === 3) { r = 92; g = 146; b = 186; }
             else { r = 180; g = 170; b = 140; }
+            // Salzsee: weiße Salzkruste mit Resten von Wasser in der Mitte
+            const mI = moist[i00] * w00 + moist[i10] * w10 + moist[i01] * w01 + moist[i11] * w11;
+            const salt = FMM.saltiness(mI, FMM.cellTemp(lta, hv));
+            if (salt > 0) {
+              const fn = fine[i00] * w00 + fine[i10] * w10 + fine[i01] * w01 + fine[i11] * w11;
+              const vv = veg[i00] * w00 + veg[i10] * w10 + veg[i01] * w01 + veg[i11] * w11;
+              const crust = salt * FMM.clamp(0.9 + fn * 0.25 - FMM.smoothstep(0.15, 0.45, vv) * 0.7, 0, 1);
+              const sc = sty === 2 ? [226, 214, 182] : sty === 1 ? [236, 234, 226] : [236, 230, 214];
+              const k2 = 0.96 + fn * 0.05;
+              r += (sc[0] * k2 - r) * crust; g += (sc[1] * k2 - g) * crust; b += (sc[2] * k2 - b) * crust;
+            }
           } else {
-            const t = FMM.cellTemp(lt, hv);
+            const t = FMM.cellTemp(lta, hv);
             if (sty === 0) {
               const slope = Math.sqrt(gx * gx + gy * gy) * slopeK;
               const v = veg[i00] * w00 + veg[i10] * w10 + veg[i01] * w01 + veg[i11] * w11;
@@ -381,7 +399,7 @@
               // Schneegrenze abhängig vom Breitengrad: im Kalten tiefer, im Warmen höher.
               // Grate (positive Krümmung) tragen etwas mehr Schnee, Täler weniger – begrenzt, damit
               // keine hellen Linien entlang von Geländekanten entstehen. Breiter, fleckiger Übergang.
-              const snowLine = FMM.clamp(0.58 + (lt - 0.3) * 0.7, 0.36, 0.95);
+              const snowLine = FMM.clamp(0.58 + (lta - 0.3) * 0.7, 0.36, 0.95);
               const snow = ov !== 255 && ov !== BI.fels ? 0
                 : FMM.smoothstep(snowLine, snowLine + 0.2, hv + FMM.clamp(cv, -0.05, 0.05) * 2 + v * 0.04 + fn * 0.025);
               if (snow > 0) {
@@ -426,7 +444,7 @@
               // Hochlagen graubraun, Gipfel über der Schneegrenze hell
               const alp = FMM.smoothstep(0.42, 0.66, hv + v * 0.03);
               if (alp > 0) { const f = alp * 0.6; r += (184 - r) * f; g += (174 - g) * f; b += (150 - b) * f; }
-              const snowLine = FMM.clamp(0.58 + (lt - 0.3) * 0.7, 0.36, 0.95);
+              const snowLine = FMM.clamp(0.58 + (lta - 0.3) * 0.7, 0.36, 0.95);
               const snow = FMM.smoothstep(snowLine, snowLine + 0.18, hv + v * 0.04) * 0.7;
               if (snow > 0) { r += (236 - r) * snow; g += (238 - g) * snow; b += (238 - b) * snow; }
               const ice = FMM.smoothstep(-0.02, -0.1, t + v * 0.02);
@@ -494,34 +512,55 @@
       const bucketOf = (w) => Math.min(NB - 1, Math.max(0, Math.round(((w - minW) / (topW - minW)) * (NB - 1))));
       const hAt = (x, y) => map.heights[FMM.clamp(Math.floor(y), 0, H - 1) * W + FMM.clamp(Math.floor(x), 0, W - 1)];
       const noise = FMM.createNoise2D(FMM.makeRng('maeander'));
+      const oxbows = new Path2D();
+      let oxCount = 0;
 
       for (const path of d.rivers) {
         // Punkte als [x, y, Breite, ausblenden] (ausblenden: in Seen und auf Gletschern)
         let P = [];
         for (const i of path) {
           const x = i % W, y = (i / W) | 0;
-          const hide = d.lake[i] || FMM.cellTemp(d.latT[y], Math.max(0, map.heights[i])) < 0.03 ? 1 : 0;
+          const hide = d.lake[i] || FMM.cellTemp(d.latT[y], Math.max(0, map.heights[i]), d.tempA[i]) < 0.03 ? 1 : 0;
           P.push(x + 0.5, y + 0.5, widthOf(d.flux[i]), hide);
         }
         P = chaikin4(chaikin4(P));
         const n = P.length / 4;
         if (n < 2) continue;
 
-        // Mäander: seitliche Auslenkung, stark im Flachland, schwach im Gebirge
+        // Mäander: seitliche Auslenkung, stark im Flachland, schwach im Gebirge; große Flüsse schwingen
+        // in weiteren Bögen. Im Flachland bleiben abgeschnürte Altarme als Sichelseen zurück.
         const out = P.slice();
         const ph = FMM.hash2(path[0] % W, (path[0] / W) | 0) * 100;
-        let sLen = 0;
+        let sLen = 0, phase = 0, lastOx = -1e9;
         for (let k = 1; k < n - 1; k++) {
           const dx = P[4 * k + 4] - P[4 * k - 4], dy = P[4 * k + 5] - P[4 * k - 3];
           const len = Math.hypot(dx, dy) || 1;
-          sLen += Math.hypot(P[4 * k] - P[4 * k - 4], P[4 * k + 1] - P[4 * k - 3]);
+          const step = Math.hypot(P[4 * k] - P[4 * k - 4], P[4 * k + 1] - P[4 * k - 3]);
+          sLen += step;
           const ci = FMM.clamp(Math.floor(P[4 * k + 1]), 0, H - 1) * W + FMM.clamp(Math.floor(P[4 * k]), 0, W - 1);
           const flat = 1 - FMM.smoothstep(0.02, 0.22, map.heights[ci]);
-          const amp = flat * Math.min(1, P[4 * k + 2] / 1.4) * 1.1;
+          const wR = P[4 * k + 2];
+          const amp = flat * (0.35 + Math.min(1.5, wR * 0.55)) * 1.15;
+          phase += (step * 0.55) / (0.75 + wR * 0.35);
           const fade = Math.min(1, k / 8, (n - 1 - k) / 8);
-          const off = amp * fade * (0.65 * Math.sin(sLen * 0.55 + ph) + 0.6 * noise(sLen * 0.18, ph));
+          const sw = Math.sin(phase + ph);
+          const off = amp * fade * (0.7 * sw + 0.5 * noise(sLen * 0.16, ph));
           out[4 * k] += (-dy / len) * off;
           out[4 * k + 1] += (dx / len) * off;
+          // Altarm am Scheitel eines weiten Bogens
+          if (flat > 0.85 && wR > 1.3 && fade === 1 && Math.abs(sw) > 0.98 && sLen - lastOx > 30 && FMM.hash2(k, path[0] % 997) < 0.45 && !d.lake[ci]) {
+            lastOx = sLen;
+            const side = sw > 0 ? 1 : -1;
+            const r = 0.9 + wR * 0.45;
+            const ox = out[4 * k] + (-dy / len) * side * (amp * 0.9 + r * 1.5), oy = out[4 * k + 1] + (dx / len) * side * (amp * 0.9 + r * 1.5);
+            const oi = FMM.clamp(Math.floor(oy), 0, H - 1) * W + FMM.clamp(Math.floor(ox), 0, W - 1);
+            if (map.heights[oi] > 0.003) {
+              const base = Math.atan2(dx, -dy) + (side > 0 ? 0 : Math.PI); // zeigt vom Fluss weg
+              oxbows.moveTo(ox + Math.cos(base - 1.9) * r, oy + Math.sin(base - 1.9) * r);
+              oxbows.arc(ox, oy, r, base - 1.9, base + 1.9);
+              oxCount++;
+            }
+          }
         }
 
         const toSea = map.heights[path[path.length - 1]] < 0;
@@ -531,33 +570,53 @@
           const E = Math.min(n - 5, 56); // ca. 14 Zellen vor der Mündung
           let flat = E > 20;
           for (let j = 0; j < E && flat; j += 4) if (hAt(out[4 * (n - 1 - j)], out[4 * (n - 1 - j) + 1]) > 0.05) flat = false;
-          if (flat && mouthW > 2.3) {
+          if (flat && mouthW > 1.4) {
+            // Mündungsarme fächern auf und verzweigen sich noch einmal
             const kb = n - 1 - E;
-            const bx = out[4 * kb], by = out[4 * kb + 1];
-            let ddx = out[4 * kb] - out[4 * (kb - 4)], ddy = out[4 * kb + 1] - out[4 * (kb - 4)];
+            const ex = out[4 * (n - 1)], ey = out[4 * (n - 1) + 1];
+            let ddx = ex - out[4 * kb], ddy = ey - out[4 * kb + 1];
             const dl = Math.hypot(ddx, ddy) || 1;
             ddx /= dl; ddy /= dl;
-            for (const side of [-1, 1]) {
-              const ang = side * (0.45 + FMM.hash2(bx | 0, side + 9) * 0.3);
-              let dx = ddx * Math.cos(ang) - ddy * Math.sin(ang), dy = ddx * Math.sin(ang) + ddy * Math.cos(ang);
-              let x = bx, y = by, reached = false;
-              const arm = new Path2D();
-              arm.moveTo(x, y);
-              for (let st = 0; st < 40; st++) {
-                const turn = -side * 0.035;
-                const ndx = dx * Math.cos(turn) - dy * Math.sin(turn);
-                dy = dx * Math.sin(turn) + dy * Math.cos(turn); dx = ndx;
+            const seed = out[4 * kb] | 0;
+            // Arm folgt grob einem Zielpunkt seitlich der Mündung → fächerförmiges Delta
+            const arm = (x, y, dx, dy, w, tx, ty, depth, salt) => {
+              const pa = new Path2D();
+              pa.moveTo(x, y);
+              let reached = false;
+              for (let st = 0; st < 70; st++) {
+                let gx = tx - x, gy = ty - y;
+                const gl = Math.hypot(gx, gy) || 1;
+                gx /= gl; gy /= gl;
+                const wob = (FMM.hash2(seed + st, salt) - 0.5) * 0.5;
+                let ndx = dx * 0.8 + gx * 0.2 - dy * wob * 0.3, ndy = dy * 0.8 + gy * 0.2 + dx * wob * 0.3;
+                const nl = Math.hypot(ndx, ndy) || 1;
+                dx = ndx / nl; dy = ndy / nl;
                 x += dx * 0.8; y += dy * 0.8;
-                arm.lineTo(x, y);
-                if (hAt(x, y) < -0.004) { reached = true; break; }
+                pa.lineTo(x, y);
+                if (hAt(x, y) < -0.002) { reached = true; break; }
+                if (depth > 0 && st === 6 + ((FMM.hash2(salt, seed) * 6) | 0)) {
+                  // Nebenarm zweigt ab
+                  const sd = FMM.hash2(salt + 1, seed) > 0.5 ? 1 : -1;
+                  arm(x, y, dx, dy, w * 0.65, tx - ddy * sd * 3, ty + ddx * sd * 3, 0, salt * 7 + 1);
+                }
               }
-              if (reached) buckets[bucketOf(mouthW * 0.42)].addPath(arm);
+              if (reached) buckets[bucketOf(w)].addPath(pa);
+            };
+            const nArms = mouthW > 2.8 ? 4 : mouthW > 2.3 ? 3 : 2;
+            for (let a = 0; a < nArms; a++) {
+              const side = a % 2 ? 1 : -1;
+              const spread = 3.5 + (a >> 1) * 3.5 + FMM.hash2(seed, a) * 2;
+              const kk = Math.min(n - 3, kb + a * 6);
+              const sx = out[4 * kk], sy = out[4 * kk + 1];
+              const ang = side * 0.5;
+              arm(sx, sy, ddx * Math.cos(ang) - ddy * Math.sin(ang), ddx * Math.sin(ang) + ddy * Math.cos(ang),
+                mouthW * (0.45 - a * 0.05), ex - ddy * side * spread + ddx * spread * 0.4, ey + ddx * side * spread + ddy * spread * 0.4, a < 2 ? 1 : 0, a * 13 + 5);
             }
           }
-          // Mündungstrichter: die letzten Zellen weiten sich
+          // Mündungstrichter (Ästuar) an steileren Küsten; im Delta nur leicht
           for (let j = 0; j < E; j++) {
             const k = n - 1 - j, t = 1 - j / E;
-            out[4 * k + 2] *= 1 + 1.6 * t * t;
+            out[4 * k + 2] *= 1 + (flat ? 0.4 : 0.9) * t * t;
           }
         }
 
@@ -568,7 +627,7 @@
           pa.lineTo(out[4 * k + 4], out[4 * k + 5]);
         }
       }
-      this.riverCache = { buckets, widths: buckets.map((_, k) => (minW + (k / (NB - 1)) * (topW - minW)) * unit) };
+      this.riverCache = { buckets, oxbows, oxCount, widths: buckets.map((_, k) => (minW + (k / (NB - 1)) * (topW - minW)) * unit) };
     }
 
     // ---------- Vektorebene ----------
@@ -635,6 +694,8 @@
           ctx.lineWidth = rc.widths[k] * (map.view.style === 'geo' ? 1.1 : 1);
           ctx.stroke(rc.buckets[k]);
         }
+        ctx.lineWidth = 0.9 * unit;
+        ctx.stroke(rc.oxbows);
         ctx.globalAlpha = 1;
       }
 
@@ -694,6 +755,7 @@
         ctx.restore();
       }
 
+      if (L.currents && d.cur && this.live !== 'terrain') this.drawCurrents(ctx, map, d, unit);
       if (L.grid) this.drawGrid(ctx, map, unit);
 
       // Staatsnamen
@@ -778,6 +840,47 @@
       if (cartCorner) this.drawCartouche(ctx, map, unit, cartCorner, inset);
       this.drawFrame(ctx, map, unit);
 
+      ctx.restore();
+    }
+
+    // Meeresströmungen: warme rot, kalte blau, neutrale grau-blau, mit Pfeilspitze
+    drawCurrents(ctx, map, d, unit) {
+      if (!this.currentCache) {
+        this.currentCache = FMM.buildCurrentArrows(map, d.cur).map((a) => ({ pts: chaikin2(chaikin2(a.pts)), t: a.t }));
+      }
+      const sty = map.view.style;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const a of this.currentCache) {
+        const p = a.pts, n = p.length;
+        const k = FMM.clamp(a.t / 0.05, -1, 1);
+        const col = k > 0.25 ? [196, 74, 50] : k < -0.25 ? [46, 104, 178] : sty === 'antique' ? [90, 70, 50] : [70, 98, 124];
+        const alpha = 0.6 + 0.35 * Math.abs(k);
+        ctx.beginPath();
+        ctx.moveTo(p[0], p[1]);
+        for (let j = 2; j < n - 2; j += 2) ctx.lineTo(p[j], p[j + 1]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = (2.6 + Math.abs(k)) * unit;
+        ctx.stroke();
+        ctx.strokeStyle = ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},${alpha.toFixed(2)})`;
+        ctx.lineWidth = (1.2 + 0.8 * Math.abs(k)) * unit;
+        ctx.setLineDash([5 * unit, 2 * unit]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Pfeilspitze
+        const ex = p[n - 2], ey = p[n - 1];
+        let dx = ex - p[n - 6], dy = ey - p[n - 5];
+        const l = Math.hypot(dx, dy) || 1;
+        dx /= l; dy /= l;
+        const s = 4.2 * unit;
+        ctx.beginPath();
+        ctx.moveTo(ex + dx * s * 0.6, ey + dy * s * 0.6);
+        ctx.lineTo(ex - dx * s - dy * s * 0.55, ey - dy * s + dx * s * 0.55);
+        ctx.lineTo(ex - dx * s + dy * s * 0.55, ey - dy * s - dx * s * 0.55);
+        ctx.closePath();
+        ctx.fill();
+      }
       ctx.restore();
     }
 
