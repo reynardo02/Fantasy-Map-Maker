@@ -17,11 +17,14 @@
     klein: { label: 'Klein (800 × 500)', width: 800, height: 500 },
     mittel: { label: 'Mittel (1200 × 750)', width: 1200, height: 750 },
     gross: { label: 'Groß (1600 × 1000)', width: 1600, height: 1000 },
+    sehrgross: { label: 'Sehr groß (2400 × 1500, ca. 10 s)', width: 2400, height: 1500 },
+    riesig: { label: 'Riesig (3200 × 2000, ca. 20 s)', width: 3200, height: 2000 },
   };
 
   // ---------- Höhenkarte ----------
   function generateHeights(p, rng) {
     const W = p.width, H = p.height, N = W * H;
+    const M = Math.min(W, H);
     const type = LAND_TYPES[p.landType] || LAND_TYPES.kontinente;
     const nBase = FMM.createNoise2D(rng);
     const nWarp1 = FMM.createNoise2D(rng);
@@ -29,79 +32,103 @@
     const nRidge = FMM.createNoise2D(rng);
     const nMask = FMM.createNoise2D(rng);
     const nDetail = FMM.createNoise2D(rng);
+    const nRange = FMM.createNoise2D(rng);
 
-    // Kontinentkerne
+    // Kontinentkerne: zufällig gedreht und gestreckt, mit kleineren Nebenkernen (Halbinseln, Subkontinente)
     const blobs = [];
     const count = rng.int(type.blobs[0], type.blobs[1]);
+    const mkBlob = (x, y, r, w, main) => ({ x, y, r, w, main, a: rng() * Math.PI, sx: rng.range(0.65, 1.5) });
     if (type.equal) {
-      // feste Anordnung, damit die Kontinente sich nicht überlappen und ähnlich viel Platz haben
-      const m = Math.min(W, H);
-      let pos;
-      if (count === 2) {
-        const tilt = rng.range(-0.12, 0.12);
-        pos = [[0.27, 0.5 - tilt], [0.73, 0.5 + tilt]];
-        if (W / H < 1.2) pos = [[0.5 - tilt, 0.27], [0.5 + tilt, 0.73]];
-      } else if (W / H >= 1.45) {
-        pos = [[0.18, rng.range(0.38, 0.62)], [0.5, rng.range(0.38, 0.62)], [0.82, rng.range(0.38, 0.62)]];
-      } else {
-        const up = rng.chance(0.5);
-        pos = up ? [[0.25, 0.33], [0.75, 0.33], [0.5, 0.72]] : [[0.25, 0.67], [0.75, 0.67], [0.5, 0.28]];
+      // etwa gleich große Kontinente, zufällig verteilt mit Mindestabstand
+      const r0 = M * (count === 2 ? 0.34 : 0.27) * Math.sqrt(W / H / 1.6);
+      const minD = r0 * (count === 2 ? 2.1 : 1.85);
+      let pos = null;
+      for (let t = 0; t < 300 && !pos; t++) {
+        const cand = [];
+        for (let k = 0; k < count; k++) cand.push([rng.range(0.2, 0.8) * W, rng.range(0.24, 0.76) * H]);
+        let ok = true;
+        for (let i = 0; i < count && ok; i++) for (let j = i + 1; j < count; j++) if (Math.hypot(cand[i][0] - cand[j][0], cand[i][1] - cand[j][1]) < minD) { ok = false; break; }
+        if (ok) pos = cand;
       }
-      for (const [px, py] of pos) {
-        blobs.push({
-          x: (px + rng.range(-0.04, 0.04)) * W,
-          y: (py + rng.range(-0.04, 0.04)) * H,
-          r: m * (count === 2 ? 0.34 : 0.27) * rng.range(0.92, 1.08),
-          sx: count === 3 && W / H >= 1.45 ? rng.range(0.6, 0.8) : rng.range(0.85, 1.25),
-          w: 1,
-        });
-      }
+      if (!pos) pos = count === 2 ? [[0.27 * W, 0.5 * H], [0.73 * W, 0.5 * H]] : [[0.2 * W, 0.45 * H], [0.5 * W, 0.55 * H], [0.8 * W, 0.45 * H]];
+      for (const [x, y] of pos) blobs.push(mkBlob(x, y, r0 * rng.range(0.92, 1.08), 1, true));
     }
     for (let b = 0; b < (type.equal ? 0 : count); b++) {
       const r = rng.range(type.radius[0], type.radius[1]);
-      blobs.push({
-        x: rng.range(0.15 + r * 0.4, 0.85 - r * 0.4) * W,
-        y: rng.range(0.15 + r * 0.4, 0.85 - r * 0.4) * H,
-        r: r * Math.min(W, H) * (1 + rng.range(-0.2, 0.3)),
-        sx: rng.range(0.7, 1.5),
-        w: rng.range(0.7, 1.1),
-      });
+      const bl = mkBlob(
+        rng.range(0.15 + r * 0.4, 0.85 - r * 0.4) * W,
+        rng.range(0.15 + r * 0.4, 0.85 - r * 0.4) * H,
+        r * M * (1 + rng.range(-0.2, 0.3)), rng.range(0.7, 1.1), true);
+      bl.sx = rng.range(0.7, 1.5);
+      blobs.push(bl);
     }
+    // Nebenkerne (nicht bei Archipel/Küste/Rauschen)
+    if (type.blobs[1] > 0 && type.blobs[1] <= 3) {
+      for (const m of blobs.slice()) {
+        const n = rng.int(1, 3);
+        for (let k = 0; k < n; k++) {
+          const ang = rng() * Math.PI * 2, dist = m.r * rng.range(0.55, 0.95);
+          blobs.push(mkBlob(m.x + Math.cos(ang) * dist, m.y + Math.sin(ang) * dist, m.r * rng.range(0.28, 0.45), m.w * rng.range(0.8, 0.95), false));
+        }
+      }
+    }
+    const mains = blobs.filter((b) => b.main);
+    for (const b of blobs) { b.ca = Math.cos(b.a); b.sa = Math.sin(b.a); }
     // Küstenregion: Land auf einer Seite
     const coastSide = rng.int(0, 3);
 
-    // Kontinentalplatten: wo sie zusammenstoßen, falten sich Gebirge auf (bzw. Inselbögen auf See),
+    // Kontinentalplatten: wo sie zusammenstoßen, falten sich Gebirgsketten auf (bzw. Inselbögen auf See),
     // wo sie auseinanderdriften, entstehen Grabenbrüche
     const plates = [];
-    const plateCount = Math.max(5, Math.round(rng.range(7, 11) * Math.sqrt((W * H) / (1200 * 750))));
+    // gleiche Welt unabhängig von der Pixelgröße: Plattenzahl hängt nur von der Strukturgröße ab
+    const plateCount = Math.max(6, Math.round(rng.range(10, 14) / Math.sqrt(p.featureScale || 1)));
     for (let k = 0; k < plateCount; k++) {
       const a = rng() * Math.PI * 2, sp = rng.range(0.35, 1);
       plates.push({ x: rng() * W, y: rng() * H, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp });
     }
-    const plateW = Math.min(W, H) * 0.075;
+    // ältere, abgetragene Gebirge an früheren Plattengrenzen (gröbere Lage)
+    const oldPlates = [];
+    for (let k = 0, n = rng.int(5, 7); k < n; k++) oldPlates.push({ x: rng() * W, y: rng() * H, id: k });
+    const oldActive = new Set();
+    for (let i = 0; i < oldPlates.length; i++) for (let j = i + 1; j < oldPlates.length; j++) if (rng.chance(0.4)) oldActive.add(i * 16 + j);
+    const plateW = M * 0.075;
 
     const scale = (p.featureScale || 1) * 3.2;
     const mtn = p.mountains == null ? 0.5 : p.mountains;
     const h = new Float32Array(N);
+    const rel = new Float32Array(N); // Relief (Gebirge, Hügel) getrennt von der Grundform
     const region = type.equal ? new Uint8Array(N) : null;
-    const riftW = Math.min(W, H) * 0.07;
-    const edgeW = Math.max(1, type.edge * Math.min(W, H));
+    const riftW = M * 0.07;
+    const edgeW = Math.max(1, type.edge * M);
 
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    // Glatte Felder (Domain Warp, Kontinentform, Plattenprofile) auf grobem Raster vorberechnen und
+    // bilinear lesen – fein aufgelöst werden nur Grundrauschen, Grate und Details
+    const G = Math.max(4, Math.round((3 * M) / 750));
+    const gw = Math.ceil(W / G) + 2, gh = Math.ceil(H / G) + 2;
+    // Felder: 0 warpU, 1 warpV, 2 ou, 3 ov, 4 Hügel, 5 Grundform, 6 Kettenprofil, 7 Vorland, 8 Graben,
+    //         9 Tripelpunkt-Abstand, 10/11 Kettennormale, 12 Altgebirge, 13 Kontinent-Nr.
+    const F = 14;
+    const grid = new Float32Array(gw * gh * F);
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        const x = gx * G, y = gy * G;
         const u = (x / H) * scale, v = (y / H) * scale;
-        // Domain Warping für natürlichere Küsten
-        const wu = u + 0.45 * FMM.fbm(nWarp1, u * 0.7 + 3.1, v * 0.7 + 7.7, 4, 2, 0.5);
-        const wv = v + 0.45 * FMM.fbm(nWarp2, u * 0.7 - 5.3, v * 0.7 + 1.9, 4, 2, 0.5);
-        let e = FMM.fbm(nBase, wu, wv, 7, 2.02, 0.5) * type.noise;
-
-        let mass = 0;
+        const o = (gy * gw + gx) * F;
         const ou = FMM.fbm(nWarp1, u * 0.5, v * 0.5, 3, 2, 0.5);
         const ov = FMM.fbm(nWarp2, u * 0.5, v * 0.5, 3, 2, 0.5);
+        grid[o] = 0.45 * FMM.fbm(nWarp1, u * 0.7 + 3.1, v * 0.7 + 7.7, 4, 2, 0.5);
+        grid[o + 1] = 0.45 * FMM.fbm(nWarp2, u * 0.7 - 5.3, v * 0.7 + 1.9, 4, 2, 0.5);
+        grid[o + 2] = ou;
+        grid[o + 3] = ov;
+        grid[o + 4] = FMM.fbm(nMask, u * 0.55 + 11, v * 0.55 - 4, 3, 2, 0.5);
+
+        // Kontinentform: gedrehte, gestreckte und verzerrte Distanz zu den Kernen
+        let mass = 0;
         for (const b of blobs) {
-          // verzerrte Distanz für unregelmäßige Kontinentformen
-          const dx = ((x - b.x) / b.sx) + ou * b.r * 0.6;
-          const dy = ((y - b.y) * b.sx) + ov * b.r * 0.6;
+          const dx0 = x - b.x, dy0 = y - b.y;
+          const rx = dx0 * b.ca + dy0 * b.sa, ry = -dx0 * b.sa + dy0 * b.ca;
+          const dx = rx / b.sx + ou * b.r * 0.6;
+          const dy = ry * b.sx + ov * b.r * 0.6;
           const dd = Math.sqrt(dx * dx + dy * dy) / b.r;
           mass = Math.max(mass, b.w * (1 - FMM.smoothstep(0.2, 1.15, dd)));
         }
@@ -109,33 +136,31 @@
           const t = [x / W, 1 - x / W, y / H, 1 - y / H][coastSide];
           mass = 1 - FMM.smoothstep(0.25, 0.75, t + ou * 0.25);
         }
-        e += mass * 0.8;
-
-        // getrennte Kontinente: jede Zelle gehört zum nächsten Kern (mit gewellten Grenzen),
-        // entlang der Grenzen verläuft ein Meeresgraben
+        let shape = mass * 0.8;
+        // getrennte Kontinente: Meeresgraben entlang der (gewellten) Grenzen zwischen den Kernen
         if (region) {
-          const qx = x + ou * Math.min(W, H) * 0.12, qy = y + ov * Math.min(W, H) * 0.12;
+          const qx = x + ou * M * 0.12, qy = y + ov * M * 0.12;
           let d1 = Infinity, d2 = Infinity, k1 = 0;
-          for (let k = 0; k < blobs.length; k++) {
-            const dd = Math.hypot(qx - blobs[k].x, qy - blobs[k].y);
+          for (let k = 0; k < mains.length; k++) {
+            const dd = Math.hypot(qx - mains[k].x, qy - mains[k].y);
             if (dd < d1) { d2 = d1; d1 = dd; k1 = k; } else if (dd < d2) d2 = dd;
           }
-          region[y * W + x] = k1;
-          e -= (1 - FMM.smoothstep(0, riftW, (d2 - d1) / 2)) * 0.9;
+          grid[o + 13] = k1;
+          shape -= (1 - FMM.smoothstep(0, riftW, (d2 - d1) / 2)) * 0.9;
         }
-
         // Rand der Karte wird zu Meer
         if (edgeW > 1) {
           const de = Math.min(x, W - 1 - x, y, H - 1 - y) / edgeW;
-          e -= (1 - FMM.smoothstep(0, 1, de)) * 0.7;
+          shape -= (1 - FMM.smoothstep(0, 1, Math.max(0, de))) * 0.7;
         }
+        grid[o + 5] = shape;
 
-        // Gebirgsketten entlang konvergenter Plattengrenzen (+ etwas Hügelland aus Rauschen)
-        const px = x + ou * Math.min(W, H) * 0.15, py = y + ov * Math.min(W, H) * 0.15;
-        let d1 = Infinity, d2 = Infinity, p1 = 0, p2 = 0;
+        // Gebirgsketten entlang konvergenter Plattengrenzen: Querprofil statt Fleckenmaske
+        const px = x + ou * M * 0.15, py = y + ov * M * 0.15;
+        let d1 = Infinity, d2 = Infinity, d3 = Infinity, p1 = 0, p2 = 0;
         for (let k = 0; k < plates.length; k++) {
           const dd = Math.hypot(px - plates[k].x, py - plates[k].y);
-          if (dd < d1) { d2 = d1; p2 = p1; d1 = dd; p1 = k; } else if (dd < d2) { d2 = dd; p2 = k; }
+          if (dd < d1) { d3 = d2; d2 = d1; p2 = p1; d1 = dd; p1 = k; } else if (dd < d2) { d3 = d2; d2 = dd; p2 = k; } else if (dd < d3) d3 = dd;
         }
         const A = plates[p1], B = plates[p2];
         let nx = B.x - A.x, ny = B.y - A.y;
@@ -143,21 +168,79 @@
         nx /= nl; ny /= nl;
         const conv = (A.vx - B.vx) * nx + (A.vy - B.vy) * ny; // > 0: Platten bewegen sich aufeinander zu
         const bdist = (d2 - d1) / 2;
-        const uplift = Math.max(0, conv) * (1 - FMM.smoothstep(0, plateW, bdist));
-        const rift = Math.max(0, -conv) * (1 - FMM.smoothstep(0, plateW * 0.45, bdist));
-        const hills = FMM.smoothstep(0.1, 0.55, FMM.fbm(nMask, u * 0.55 + 11, v * 0.55 - 4, 3, 2, 0.5)) * 0.3;
-        const mask = Math.max(FMM.smoothstep(0.05, 0.7, uplift), hills);
-        e += uplift * 0.1 * mtn - rift * 0.1;
-        // schmalere, kettenförmige Grate statt breiter Massive
-        const ridge = Math.pow(FMM.ridged(nRidge, wu * 1.5, wv * 1.5, 6), 1.6);
-        e += ridge * mask * mtn * 0.85 * FMM.smoothstep(-0.15, 0.25, e);
+        // Stärke und Breite variieren entlang der Grenze → Pässe und Lücken statt einer durchgehenden Mauer
+        const kComp = Math.pow(FMM.clamp(conv / 0.8, 0, 1), 0.7) * (0.35 + 0.65 * FMM.smoothstep(-0.4, 0.1, FMM.fbm(nRange, u * 0.8 + 70, v * 0.8 - 50, 2, 2, 0.5)));
+        const wR = plateW * (0.32 + 0.22 * (nRange(u * 0.9 + 40, v * 0.9) * 0.5 + 0.5));
+        const dR = (bdist - nRange(u * 0.6 - 20, v * 0.6 + 33) * plateW * 0.35) / wR;
+        grid[o + 6] = kComp * Math.exp(-dR * dR);
+        grid[o + 7] = kComp * (1 - FMM.smoothstep(0, plateW * 2.2, bdist));
+        grid[o + 8] = Math.max(0, -conv) * (1 - FMM.smoothstep(0, plateW * 0.45, bdist));
+        grid[o + 9] = FMM.smoothstep(0, plateW * 0.8, (d3 - d2) / 2);
+        grid[o + 10] = nx;
+        grid[o + 11] = ny;
+
+        // Altgebirge: niedrig und gerundet an früheren Plattengrenzen
+        let o1 = Infinity, o2 = Infinity, q1 = 0, q2 = 0;
+        const qx = x + ou * M * 0.2, qy = y + ov * M * 0.2;
+        for (let k = 0; k < oldPlates.length; k++) {
+          const dd = Math.hypot(qx - oldPlates[k].x, qy - oldPlates[k].y);
+          if (dd < o1) { o2 = o1; q2 = q1; o1 = dd; q1 = k; } else if (dd < o2) { o2 = dd; q2 = k; }
+        }
+        if (oldActive.has(Math.min(q1, q2) * 16 + Math.max(q1, q2))) {
+          const od = (o2 - o1) / 2 / (plateW * 0.9);
+          grid[o + 12] = Math.exp(-od * od) * FMM.smoothstep(-0.2, 0.3, FMM.fbm(nRange, u * 0.8 + 70, v * 0.8 - 50, 2, 2, 0.5) + 0.1);
+        }
+      }
+    }
+    const f = new Float32Array(F);
+    const sampleGrid = (x, y) => {
+      const fx = x / G, fy = y / G;
+      const ix = fx | 0, iy = fy | 0, tx = fx - ix, ty = fy - iy;
+      const o00 = (iy * gw + ix) * F, o10 = o00 + F, o01 = o00 + gw * F, o11 = o01 + F;
+      for (let k = 0; k < F - 1; k++) {
+        f[k] = (grid[o00 + k] * (1 - tx) + grid[o10 + k] * tx) * (1 - ty) + (grid[o01 + k] * (1 - tx) + grid[o11 + k] * tx) * ty;
+      }
+      f[F - 1] = grid[(tx < 0.5 ? (ty < 0.5 ? o00 : o01) : (ty < 0.5 ? o10 : o11)) + F - 1];
+    };
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        sampleGrid(x, y);
+        const i = y * W + x;
+        const u = (x / H) * scale, v = (y / H) * scale;
+        // Domain Warping für natürlichere Küsten
+        const wu = u + f[0], wv = v + f[1];
+        let e = FMM.fbm(nBase, wu, wv, 7, 2.02, 0.5) * type.noise + f[5];
+        if (region) region[i] = f[13];
+        const landish = FMM.smoothstep(-0.2, 0.25, e);
+        const shape = e;
+
+        const rp = f[6];
+        if (rp > 0.01) {
+          // Grate parallel zur Kette: Rauschen entlang der Grenze gestreckt; nahe Tripelpunkten isotrop
+          const nl = Math.hypot(f[10], f[11]) || 1, nx = f[10] / nl, ny = f[11] / nl;
+          const along = ((x * -ny + y * nx) / H) * scale, across = ((x * nx + y * ny) / H) * scale;
+          const ri = FMM.ridged(nRidge, wu * 1.5, wv * 1.5, 5);
+          const ra = f[9] > 0.02 ? FMM.ridged(nRidge, along * 0.9 + 13.7, across * 3.6 - 4.1, 5) : ri;
+          const ridge = Math.pow(ri + (ra - ri) * f[9], 1.4);
+          e += rp * mtn * 2 * (0.3 + 0.7 * ridge) * 0.95 * (0.45 + 0.55 * landish);
+        }
+        // Vorland und Hochplateau beiderseits der Kette, Grabenbrüche
+        e += f[7] * 0.07 * mtn * 2 * landish;
+        e -= f[8] * 0.1;
+        if (f[12] > 0.01) e += f[12] * (0.4 + 0.6 * FMM.ridged(nRidge, wu * 1.1 + 7, wv * 1.1, 3)) * 0.42 * (0.5 + mtn) * landish;
+
+        // sanftes Hügelland (ohne Gratrauschen, daher keine Gipfelhaufen)
+        e += FMM.smoothstep(-0.1, 0.55, f[4]) * 0.11 * (0.5 + mtn) * landish;
         e += FMM.fbm(nDetail, u * 6, v * 6, 3, 2, 0.5) * 0.025;
-        h[y * W + x] = e;
+        h[i] = e;
+        rel[i] = e - shape;
       }
     }
 
     // leichte Glättung gegen Rauschartefakte im Relief
     blur(h, W, H);
+    blur(rel, W, H);
 
     // Meeresspiegel so wählen, dass der gewünschte Landanteil entsteht
     const sample = [];
@@ -167,7 +250,7 @@
     const landFrac = FMM.clamp(p.landFraction || 0.4, 0.05, 0.95);
     if (region) {
       // Meeresspiegel je Kontinentbereich, sodass jeder Kontinent gleich viel Land erhält
-      const k = blobs.length;
+      const k = mains.length;
       const per = Array.from({ length: k }, () => []);
       for (let i = 0; i < N; i += step) per[region[i]].push(h[i]);
       const target = (landFrac * N) / k / step;
@@ -180,6 +263,13 @@
     } else {
       const sea = sample[Math.floor((1 - landFrac) * (sample.length - 1))];
       for (let i = 0; i < N; i++) h[i] -= sea;
+    }
+    // Die Grundform bestimmt nur, wo Land ist: im Inneren laufen die Kontinente in flache Ebenen aus
+    // (keine Kuppel), die Höhen kommen aus dem Relief – Gebirgsketten, Altgebirge, Hügel
+    const SAT = 0.18;
+    for (let i = 0; i < N; i++) {
+      const base = h[i] - rel[i];
+      if (base > 0) h[i] = SAT * (1 - Math.exp(-base / SAT)) + rel[i];
     }
 
     // Küstendetails: verwirbeltes, feines Rauschen nur nahe dem Meeresspiegel
@@ -198,16 +288,23 @@
       }
     }
 
-    let maxL = 1e-6, minO = -1e-6;
+    let minO = -1e-6;
+    const landVals = [];
     for (let i = 0; i < N; i++) {
-      if (h[i] > maxL) maxL = h[i];
       if (h[i] < minO) minO = h[i];
+      if (h[i] > 0 && (i % 7) === 0) landVals.push(h[i]);
     }
-    // Normalisieren: Land 0..1 (Tiefland flacher), Meer -1..0 (flache Schelfe)
+    // Bezugshöhe: hohes Perzentil statt Maximum, damit ein einzelner Gipfel nicht alles andere flach drückt
+    landVals.sort((a, b) => a - b);
+    const maxL = Math.max(1e-6, landVals.length ? landVals[Math.floor(landVals.length * 0.997)] : 1);
+    // Normalisieren: Land 0..1 (Tiefland flacher, Gipfel weich begrenzt), Meer -1..0 (flache Schelfe)
     for (let i = 0; i < N; i++) {
       const v = h[i];
-      if (v >= 0) h[i] = Math.pow(v / maxL, 1.35);
-      else h[i] = -Math.pow(v / minO, 0.75);
+      if (v >= 0) {
+        let t = Math.pow(v / maxL, 1.35);
+        if (t > 0.9) t = 0.9 + 0.1 * (1 - Math.exp(-(t - 0.9) / 0.1));
+        h[i] = t;
+      } else h[i] = -Math.pow(v / minO, 0.75);
     }
     // Einzelpixel-Inseln & -Seen entfernen (wirkt sauberer)
     for (let y = 1; y < H - 1; y++) {
