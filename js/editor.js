@@ -52,7 +52,7 @@
         stateMap: this.cache.s.a,
         bv: app.biomeVersion,
         biomeMap: this.cache.b.a,
-        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, settings: map.settings }),
+        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, pois: map.pois || [], subtitle: map.subtitle || '', settings: map.settings }),
       };
     }
     push() {
@@ -78,7 +78,7 @@
       if (snap.sv !== app.stateVersion) { map.stateMap = snap.stateMap.slice(); app.stateVersion = snap.sv; this.cache.s = { v: snap.sv, a: snap.stateMap }; }
       if (snap.bv !== app.biomeVersion) { map.biomeMap = snap.biomeMap.slice(); app.biomeVersion = snap.bv; this.cache.b = { v: snap.bv, a: snap.biomeMap }; }
       const o = JSON.parse(snap.json);
-      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.settings = o.settings;
+      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.pois = o.pois || []; map.subtitle = o.subtitle || ''; map.settings = o.settings;
       app.afterRestore(terrainChanged);
     }
     undo() {

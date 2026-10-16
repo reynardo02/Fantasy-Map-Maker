@@ -595,6 +595,17 @@
         reliefTimer = setTimeout(() => { this.renderer.renderBase(this.map, this.d); this.editor.requestDraw(); this.changed(); }, 60);
       });
 
+      $('mapSubtitle').addEventListener('change', (e) => {
+        this.history.push();
+        this.map.subtitle = e.target.value.trim();
+        this.editor.requestDraw();
+        this.changed();
+      });
+      $('cartoucheCorner').addEventListener('change', (e) => {
+        this.map.view.cartouche = e.target.value;
+        this.editor.requestDraw();
+        this.changed();
+      });
       $('btnRegionNames').onclick = () => {
         this.history.push();
         const map = this.map;
@@ -681,6 +692,8 @@
     syncUi() {
       const map = this.map;
       $('mapName').value = map.name;
+      $('mapSubtitle').value = map.subtitle || '';
+      $('cartoucheCorner').value = map.view.cartouche || 'auto';
       document.title = map.name + ' – Fantasy Map Maker';
       document.querySelectorAll('#styleSeg button').forEach((b) => b.classList.toggle('active', b.dataset.style === map.view.style));
       document.querySelectorAll('#layers input').forEach((cb) => { cb.checked = !!map.view.layers[cb.dataset.layer]; });

@@ -95,10 +95,22 @@
           <label><input type="checkbox" data-layer="compass"> Kompass</label>
           <label><input type="checkbox" data-layer="scale"> Maßstab</label>
           <label><input type="checkbox" data-layer="legend"> Legende</label>
+          <label><input type="checkbox" data-layer="cartouche"> Kartusche</label>
+          <label><input type="checkbox" data-layer="frame"> Rahmen</label>
         </div>
         <label class="row">Relief-Stärke
           <input id="reliefStrength" type="range" min="0.2" max="2.5" step="0.1" value="1">
         </label>
+        <div class="form-grid" id="cartoucheRow">
+          <span>Untertitel</span><input id="mapSubtitle" type="text" placeholder="z. B. Die bekannte Welt">
+          <span>Kartusche</span><select id="cartoucheCorner">
+            <option value="auto">Automatisch</option>
+            <option value="tl">Oben links</option>
+            <option value="tr">Oben rechts</option>
+            <option value="bl">Unten links</option>
+            <option value="br">Unten rechts</option>
+          </select>
+        </div>
         <div class="btn-row">
           <button id="btnRegionNames" title="Gebirge, Wälder, Wüsten, Sümpfe, Seen und große Flüsse neu benennen">🏷 Landschaftsnamen neu erzeugen</button>
         </div>
@@ -220,6 +232,7 @@
   <script src="js/contours.js"></script>
   <script src="js/roads.js"></script>
   <script src="js/symbols.js"></script>
+  <script src="js/icons.js"></script>
   <script src="js/render.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/editor.js"></script>
