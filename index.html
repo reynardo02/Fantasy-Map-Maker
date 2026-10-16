@@ -49,6 +49,7 @@
         <button class="tool" data-tool="state" title="Gebiet einem Staat zuweisen"><span>🖌️</span>Staat malen</button>
         <button class="tool" data-tool="city" title="Städte setzen, auswählen, verschieben"><span>🏰</span>Städte</button>
         <button class="tool" data-tool="label" title="Beschriftungen setzen, auswählen, verschieben"><span>🔤</span>Texte</button>
+        <button class="tool" data-tool="poi" title="Sehenswürdigkeiten setzen, auswählen, verschieben (O)"><span>🗿</span>Orte</button>
       </div>
       <div class="tool-group brush" id="brushSettings">
         <div class="group-title">Pinsel</div>
@@ -95,10 +96,34 @@
           <label><input type="checkbox" data-layer="compass"> Kompass</label>
           <label><input type="checkbox" data-layer="scale"> Maßstab</label>
           <label><input type="checkbox" data-layer="legend"> Legende</label>
+          <label><input type="checkbox" data-layer="pois"> Orte</label>
+          <label><input type="checkbox" data-layer="cartouche"> Kartusche</label>
+          <label><input type="checkbox" data-layer="frame"> Rahmen</label>
         </div>
         <label class="row">Relief-Stärke
           <input id="reliefStrength" type="range" min="0.2" max="2.5" step="0.1" value="1">
         </label>
+        <div class="form-grid" id="cartoucheRow">
+          <span>Untertitel</span><input id="mapSubtitle" type="text" placeholder="z. B. Die bekannte Welt">
+          <span>Kartusche</span><select id="cartoucheCorner">
+            <option value="auto">Automatisch</option>
+            <option value="tl">Oben links</option>
+            <option value="tr">Oben rechts</option>
+            <option value="bl">Unten links</option>
+            <option value="br">Unten rechts</option>
+          </select>
+        </div>
+        <div class="btn-row">
+          <button id="btnRegionNames" title="Gebirge, Wälder, Wüsten, Sümpfe, Seen und große Flüsse neu benennen">🏷 Landschaftsnamen neu erzeugen</button>
+        </div>
+      </section>
+
+      <section class="card" id="poiCard" hidden>
+        <h3>Sehenswürdigkeiten</h3>
+        <ul class="state-list biome-list" id="poiList"></ul>
+        <div class="btn-row">
+          <button id="btnGenPois" title="Alle Sehenswürdigkeiten entfernen und neu verteilen">🎲 Neu verteilen</button>
+        </div>
       </section>
 
       <section class="card" id="biomeCard" hidden>
@@ -194,6 +219,7 @@
           <option value="2" selected>2× (empfohlen)</option>
           <option value="3">3× (Druck)</option>
           <option value="4">4× (großer Druck)</option>
+          <option value="6">6× (Poster – dauert einige Sekunden)</option>
         </select>
       </label>
       <div class="dialog-actions">
@@ -212,10 +238,13 @@
   <script src="js/derive.js"></script>
   <script src="js/erosion.js"></script>
   <script src="js/climate.js"></script>
+  <script src="js/regions.js"></script>
+  <script src="js/pois.js"></script>
   <script src="js/generator.js"></script>
   <script src="js/contours.js"></script>
   <script src="js/roads.js"></script>
   <script src="js/symbols.js"></script>
+  <script src="js/icons.js"></script>
   <script src="js/render.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/editor.js"></script>

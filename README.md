@@ -39,6 +39,8 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Straßennetz** zwischen den Städten: Wegsuche über das Gelände. Straßen meiden Gebirge und Gewässer und bündeln sich zu Hauptstraßen, kleine Orte hängen an Nebenwegen. Das Netz passt sich an, wenn Städte gesetzt, verschoben oder gelöscht werden.
 - Staaten breiten sich von ihren Hauptstädten über das Gelände aus. Gebirge und Flüsse werden dabei zu natürlichen Grenzen.
 - Namensgenerator mit sechs Sprachstilen (nordisch, elbisch, romanisch, germanisch, orientalisch, rau) für Staaten, Städte und Meere
+- **Landschaftsnamen:** Gebirge, Wälder, Wüsten, Sümpfe, Seen und große Flüsse werden benannt („Die Sturmzinnen“, „Der Rabenforst“). Die Schrift folgt dem Gebirgskamm, der Form der Region oder dem Flusslauf.
+- **Sehenswürdigkeiten:** Vulkane auf hohen Gipfeln, Wasserfälle an Gefällestufen, Leuchttürme auf Landspitzen, Höhlen, Ruinen, Burgruinen, Türme, Tempel und Schlachtfelder – jeweils mit Symbol und Namen
 
 ### Darstellungsstile
 - **Geografisch:** natürliche, satellitenbildartige Farben, stufenlos aus Klima und Feuchtigkeit (Wüstensand bis tiefgrüner Wald), Wälder mit feiner Kronenstruktur, alpine Matten, Fels und Schnee im Gebirge, weiches Relief, Meerestiefen und Legende
@@ -46,7 +48,8 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - **Antik:** Pergament-Look mit Gradnetz, Rahmen und Vignette
 - **Fantasy:** gemalter Look klassischer Fantasy-Karten – helle Aquarellfarben, tiefblaues Meer mit hellem Küstensaum, gezeichnete Gebirgsketten mit Schraffur und Schneekappen, Wälder als dichte Baumflächen
 - Küsten, Seeufer und Staatsgrenzen sind geglättete Vektorlinien; das Kartenbild wird in doppelter Auflösung berechnet
-- Ebenen einzeln schaltbar: Relief, Flüsse, Straßen, Symbole (gezeichnete Berge, Hügel und Bäume, im antiken und im Fantasy-Stil standardmäßig an), Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Gradnetz, Kompass, Maßstab, Legende
+- Im Fantasy- und Antik-Stil: Städte als gezeichnete Burgen, ummauerte Städte und Dörfer, **Titelkartusche** mit Kartenname, Untertitel und Symbol-Legende, **verzierter Rahmen** mit Gradleiste und eine Windrose mit Lilie
+- Ebenen einzeln schaltbar: Relief, Flüsse, Straßen, Symbole (gezeichnete Berge, Hügel und Bäume, im antiken und im Fantasy-Stil standardmäßig an), Staatsfarben, Grenzen, Städte, Staatsnamen, Texte, Orte, Gradnetz, Kompass, Maßstab, Legende, Kartusche, Rahmen
 
 ### Bearbeiten
 | Werkzeug | Taste | Funktion |
@@ -60,6 +63,7 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 | Staat malen | `P` | Gebiet einem Staat zuweisen („Herrenlos“ wirkt als Radierer) |
 | Städte | `C` | Städte setzen, verschieben, umbenennen, zur Hauptstadt machen |
 | Texte | `X` | Beschriftungen und Meeresnamen setzen; Staatsnamen verschieben und drehen |
+| Orte | `O` | Sehenswürdigkeiten setzen, verschieben, umbenennen; „Neu verteilen“ erzeugt sie automatisch |
 
 Weitere Tasten: `Strg+Z` rückgängig, `Strg+Y` wiederholen, `Strg+S` als Datei speichern, `Entf` löscht die Auswahl, `[` `]` ändern die Pinselgröße, `+` `-` `0` zoomen.
 
@@ -68,7 +72,7 @@ Nach Geländeänderungen werden Flüsse, Seen und Küsten automatisch neu berech
 ### Speichern und Weiterbearbeiten
 - **Automatisch im Browser** (IndexedDB). Unter „Meine Karten“ stehen alle Karten mit Vorschaubild.
 - **Als Datei** (`.fmap`, komprimiertes JSON). Gut für Backups oder zum Weitergeben. Mit „Öffnen“ lädt man sie wieder.
-- **PNG-Export** in 1× bis 4× Auflösung, z. B. für den Druck.
+- **PNG-Export** in 1× bis 6× Auflösung. Für den Druck wird das Kartenbild in höherer Auflösung neu berechnet, damit es scharf bleibt.
 
 ## Projektstruktur
 
@@ -77,6 +81,9 @@ index.html        Oberfläche
 css/style.css     Gestaltung
 js/core.js        Zufall (Seed), Simplex-Rauschen, Heap, Hilfsfunktionen
 js/names.js       Namensgenerator
+js/regions.js     Landschaftsregionen, Mittellinien, Landschafts- und Flussnamen
+js/pois.js        Sehenswürdigkeiten (Platzierung und Namen)
+js/icons.js       Gezeichnete Symbole für Städte und Sehenswürdigkeiten
 js/biomes.js      Landschaftsformen (Einteilung und Farben)
 js/contours.js    Geglättete Konturen (Küsten, Seeufer, Grenzen)
 js/roads.js       Straßennetz (A*-Wegsuche)

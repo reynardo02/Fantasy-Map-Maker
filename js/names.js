@@ -98,6 +98,57 @@
       if (size === 'sea') return this.rng.pick(['Meer von ' + n, n + 'meer', n + '-See']);
       return this.rng.pick(['Bucht von ' + n, 'Golf von ' + n, n + 'see']);
     }
+
+    // ---------- Landschaftsnamen ----------
+    // eindeutiger Name: entweder aus der Kultur abgeleitet oder beschreibend („Die Sturmzinnen“)
+    landscape(culture, own, desc, nouns) {
+      for (let k = 0; k < 12; k++) {
+        let name;
+        if (this.rng() < 0.45) {
+          const [noun, art] = this.rng.pick(nouns);
+          name = (art ? art + ' ' : '') + this.rng.pick(desc) + noun;
+        } else {
+          name = this.rng.pick(own(this.name(culture)));
+        }
+        if (!this.used.has(name)) { this.used.add(name); return name; }
+      }
+      return this.rng.pick(own(this.name(culture)));
+    }
+    mountainName(culture) {
+      return this.landscape(culture, (n) => [n + 'gebirge', 'Die ' + adj(n) + ' Berge', n + 'kamm', 'Berge von ' + n],
+        ['Frost', 'Drachen', 'Nebel', 'Schatten', 'Donner', 'Eisen', 'Grau', 'Sturm', 'Feuer', 'Mond', 'Wolken', 'Riesen'],
+        [['zinnen', 'Die'], ['spitzen', 'Die'], ['gebirge', 'Das'], ['berge', 'Die'], ['kamm', 'Der'], ['grat', 'Der'], ['horn', 'Das']]);
+    }
+    forestName(culture) {
+      return this.landscape(culture, (n) => [n + 'wald', 'Wald von ' + n, 'Der ' + adj(n) + ' Forst', n + 'hain'],
+        ['Dunkel', 'Nebel', 'Schatten', 'Alt', 'Wolfs', 'Hirsch', 'Raben', 'Flüster', 'Dorn', 'Eichen', 'Elfen', 'Moos'],
+        [['wald', 'Der'], ['forst', 'Der'], ['hain', 'Der'], ['tann', 'Der']]);
+    }
+    desertName(culture) {
+      return this.landscape(culture, (n) => ['Wüste ' + n, n + '-Wüste', 'Die ' + adj(n) + ' Sande'],
+        ['Rot', 'Glut', 'Sonnen', 'Salz', 'Knochen', 'Staub', 'Gold', 'Flammen'],
+        [['wüste', 'Die'], ['öde', 'Die'], ['sande', 'Die']]);
+    }
+    swampName(culture) {
+      return this.landscape(culture, (n) => [n + 'moor', 'Sümpfe von ' + n, n + 'bruch'],
+        ['Nebel', 'Toten', 'Schwarz', 'Irr', 'Krähen', 'Unken', 'Faul'],
+        [['moor', 'Das'], ['sumpf', 'Der'], ['marsch', 'Die'], ['fenn', 'Das']]);
+    }
+    lakeName(culture) {
+      return this.landscape(culture, (n) => [n + 'see', 'See von ' + n, n + 'er Wasser'],
+        ['Spiegel', 'Silber', 'Mond', 'Kristall', 'Schwarz', 'Nebel', 'Stern'],
+        [['see', 'Der'], ['wasser', 'Das']]);
+    }
+    riverName(culture) {
+      const n = this.name(culture);
+      return this.rng.pick([n, n, n.replace(/[aeiouy]+$/i, '') + 'a', n + 'bach']);
+    }
+  }
+
+  // Adjektivform eines Ortsnamens („Skalvik“ → „Skalviker“)
+  function adj(n) {
+    if (/er$/.test(n)) return n;
+    return /e$/.test(n) ? n + 'r' : n + 'er';
   }
 
   FMM.CULTURES = CULTURES;

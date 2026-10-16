@@ -72,6 +72,15 @@
   };
   FMM.STYLE = STYLE;
 
+  // Schriftfarben für Landschafts- und Flussnamen je Stil
+  const REGION_INK = {
+    geo: { gebirge: '#3a2e22', wald: '#1f3a1c', wueste: '#5e3c1c', sumpf: '#2e3a26', see: '#1c3a5c', fluss: '#1c4a78' },
+    fantasy: { gebirge: '#4a3826', wald: '#22401e', wueste: '#6e4220', sumpf: '#34402a', see: '#1f3f66', fluss: '#1f4f80' },
+    political: { gebirge: '#4a3e34', wald: '#3e4a34', wueste: '#5e4a34', sumpf: '#3e4a3a', see: '#2c4a66', fluss: '#2c5478' },
+    antique: { gebirge: '#3b2a18', wald: '#3b2a18', wueste: '#3b2a18', sumpf: '#3b2a18', see: '#3b2a18', fluss: '#3b2a18' },
+  };
+
+  const FRAME_W = 16; // Rahmenbreite in Karteneinheiten
   const FONT_LABEL = '"Cinzel", "Trajan Pro", Georgia, serif';
   const FONT_TEXT = '"IM Fell English", "Palatino Linotype", Georgia, serif';
 
@@ -82,10 +91,11 @@
       this.hitBoxes = [];
     }
 
-    setMap(map) {
+    setMap(map, opts) {
       this.map = map;
-      // doppelte Auflösung für glatte Küsten und Übergänge (bei sehr großen Karten einfach)
-      this.S = map.width * map.height <= 2000000 ? 2 : 1;
+      // doppelte Auflösung für glatte Küsten und Übergänge (bei sehr großen Karten einfach);
+      // beim Druck-Export höher
+      this.S = opts && opts.S ? opts.S : map.width * map.height <= 2000000 ? 2 : 1;
       this.base.width = map.width * this.S;
       this.base.height = map.height * this.S;
       this.img = this.bctx.createImageData(this.base.width, this.base.height);
@@ -710,6 +720,23 @@
       if (L.labels) {
         for (const lb of map.labels) {
           const size = (lb.size || 14) * unit;
+          if (lb.path && lb.path.length >= 4) {
+            // Landschafts- und Flussnamen folgen ihrem Pfad
+            const sub = lb.kind === 'river' ? 'fluss' : lb.sub;
+            const ink = (REGION_INK[sty] || REGION_INK.geo)[sub] || st.text;
+            const caps = sub === 'gebirge';
+            const box = this.drawTextOnPath(ctx, lb.text, lb.path, {
+              font: `${caps ? '600 ' : 'italic '}${size}px ${caps ? FONT_LABEL : FONT_TEXT}`,
+              color: lb.color || ink,
+              halo: st.halo,
+              haloWidth: size * 0.15,
+              spacing: size * (caps ? 0.35 : sub === 'fluss' || sub === 'see' ? 0.1 : 0.2),
+              alpha: 0.9,
+            });
+            this.hitBoxes.push({ type: 'label', id: lb.id, ...box });
+            if (opts.selection && opts.selection.type === 'label' && opts.selection.id === lb.id) this.drawSelBox(ctx, box, view);
+            continue;
+          }
           const sea = lb.kind === 'sea';
           const box = this.drawText(ctx, sea ? spaced(lb.text) : lb.text, lb.x, lb.y, {
             font: `${sea ? 'italic ' : ''}${lb.bold ? '700 ' : ''}${size}px ${sea ? FONT_TEXT : lb.font === 'text' ? FONT_TEXT : FONT_LABEL}`,
@@ -725,15 +752,30 @@
         }
       }
 
+      if (L.pois && map.pois) this.drawPois(ctx, map, unit, st, opts, view);
+
       if (L.cities) {
         // erst Symbole, dann Namen – Hauptstädte zuletzt (oben)
         const order = map.cities.slice().sort((a, b) => rank(a.type) - rank(b.type));
         for (const c of order) this.drawCity(ctx, map, c, unit, st, opts, view);
       }
 
-      if (L.legend) this.drawLegend(ctx, map, unit, st);
-      if (L.compass) this.drawCompass(ctx, W - 62 * unit, 66 * unit, 40 * unit, map.view.style);
-      if (L.scale) this.drawScale(ctx, map, unit, st);
+      // Ecken verteilen: Kartusche zuerst, dann Kompass, Maßstab, Legende
+      const inset = L.frame ? FRAME_W * unit : 0;
+      const free = new Set(['tl', 'tr', 'bl', 'br']);
+      const take = (prefs) => { const c = prefs.find((k) => free.has(k)) || prefs[0]; free.delete(c); return c; };
+      const cartCorner = L.cartouche ? take([this.cartoucheCorner(map)]) : null;
+      const compassCorner = take(['tr', 'tl', 'br', 'bl']);
+      const scaleCorner = take(['bl', 'br', 'tl', 'tr']);
+      const legendCorner = take(['br', 'bl', 'tl', 'tr']);
+      if (L.legend) this.drawLegend(ctx, map, unit, st, legendCorner, inset);
+      if (L.compass) {
+        const cx = compassCorner[1] === 'r' ? W - 62 * unit - inset : 62 * unit + inset;
+        const cy = compassCorner[0] === 't' ? 66 * unit + inset : H - 66 * unit - inset;
+        this.drawCompass(ctx, cx, cy, 40 * unit, map.view.style);
+      }
+      if (L.scale) this.drawScale(ctx, map, unit, st, scaleCorner, inset);
+      if (cartCorner) this.drawCartouche(ctx, map, unit, cartCorner, inset);
       this.drawFrame(ctx, map, unit);
 
       ctx.restore();
@@ -765,6 +807,67 @@
       return { x, y, w, h: size * 1.2, angle: o.angle || 0 };
     }
 
+    // Text entlang einer Polylinie [x0, y0, x1, y1, …]; Buchstaben einzeln nach der Tangente gedreht
+    drawTextOnPath(ctx, text, path, o) {
+      let p = path;
+      // Schrift nie kopfüber: Pfad von links nach rechts lesen
+      if (p[p.length - 2] < p[0]) { const q = []; for (let k = p.length - 2; k >= 0; k -= 2) q.push(p[k], p[k + 1]); p = q; }
+      p = chaikin2(chaikin2(p));
+      const n = p.length / 2, cum = [0];
+      for (let k = 1; k < n; k++) cum.push(cum[k - 1] + Math.hypot(p[2 * k] - p[2 * k - 2], p[2 * k + 1] - p[2 * k - 1]));
+      const L = cum[n - 1];
+      // Punkt auf dem Pfad bei Bogenlänge s (außerhalb: geradlinig verlängert)
+      const at = (sv) => {
+        let k = 1;
+        while (k < n - 1 && cum[k] < sv) k++;
+        const seg = (cum[k] - cum[k - 1]) || 1;
+        const f = (sv - cum[k - 1]) / seg;
+        return [p[2 * k - 2] + (p[2 * k] - p[2 * k - 2]) * f, p[2 * k - 1] + (p[2 * k + 1] - p[2 * k - 1]) * f];
+      };
+      ctx.save();
+      ctx.font = o.font;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = o.alpha == null ? 1 : o.alpha;
+      const chars = [...text];
+      const sp = o.spacing || 0;
+      const ws = chars.map((ch) => ctx.measureText(ch).width);
+      const total = ws.reduce((a, b) => a + b, 0) + sp * (chars.length - 1);
+      const size = parseFloat(/(\d+(\.\d+)?)px/.exec(o.font)[1]);
+      let sPos = (L - total) / 2;
+      const place = [];
+      for (let k = 0; k < chars.length; k++) {
+        const c = sPos + ws[k] / 2;
+        const d = Math.max(ws[k] / 2, size * 0.3);
+        const a = at(c - d), b = at(c + d), m = at(c);
+        place.push([m[0], m[1], Math.atan2(b[1] - a[1], b[0] - a[0])]);
+        sPos += ws[k] + sp;
+      }
+      const base = ctx.getTransform();
+      const pass = (stroke) => {
+        for (let k = 0; k < chars.length; k++) {
+          if (chars[k] === ' ') continue;
+          const [x, y, ang] = place[k];
+          ctx.setTransform(base.a, base.b, base.c, base.d, base.e, base.f);
+          ctx.translate(x, y);
+          ctx.rotate(ang);
+          if (stroke) ctx.strokeText(chars[k], 0, 0); else ctx.fillText(chars[k], 0, 0);
+        }
+      };
+      if (o.halo) {
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = o.haloWidth || 3;
+        ctx.strokeStyle = o.halo;
+        pass(true);
+      }
+      ctx.fillStyle = o.color;
+      pass(false);
+      ctx.restore();
+      const mid = at(L / 2), a0 = at(L / 2 - total / 4), a1 = at(L / 2 + total / 4);
+      return { x: mid[0], y: mid[1], w: total, h: size * 1.3, angle: Math.atan2(a1[1] - a0[1], a1[0] - a0[0]) };
+    }
+
     drawSelBox(ctx, box, view) {
       ctx.save();
       ctx.translate(box.x, box.y);
@@ -777,7 +880,15 @@
     }
 
     drawCity(ctx, map, c, unit, st, opts, view) {
-      const r = (c.type === 'capital' ? 4.2 : c.type === 'city' ? 3.1 : 2) * unit;
+      const iconic = map.view.style === 'fantasy' || map.view.style === 'antique';
+      let r = (c.type === 'capital' ? 4.2 : c.type === 'city' ? 3.1 : 2) * unit;
+      if (iconic) {
+        // gezeichnete Symbole: Burg, ummauerte Stadt, Dorf
+        const kind = c.type === 'capital' ? 'burg' : c.type === 'city' ? 'stadt' : 'dorf';
+        const s = (c.type === 'capital' ? 4.6 : c.type === 'city' ? 3.9 : 2.8) * unit;
+        FMM.drawIcon(ctx, kind, c.x, c.y, s, map.view.style, unit);
+        r = FMM.iconExtent[kind][0] * s;
+      } else {
       ctx.save();
       ctx.lineWidth = 1.1 * unit;
       ctx.strokeStyle = st.city;
@@ -793,6 +904,7 @@
         ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fillStyle = st.city; ctx.fill();
       }
       ctx.restore();
+      }
       const size = (c.type === 'capital' ? 13 : c.type === 'city' ? 11 : 9) * unit;
       const weight = c.type === 'capital' ? '700 ' : '';
       ctx.save();
@@ -814,6 +926,88 @@
       }
     }
 
+    // Windrose mit 16 Strahlen, Gradring und Lilie im Norden
+    drawOrnateCompass(ctx, cx, cy, R, style) {
+      const dark = style === 'antique' ? '#4a3420' : '#2e2620';
+      const light = style === 'antique' ? '#efe0bb' : '#f4ecd8';
+      const accent = style === 'antique' ? '#8a3a26' : '#a8322a';
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.globalAlpha = 0.95;
+      // Ringe mit Gradstrichen
+      ctx.fillStyle = 'rgba(244,236,216,0.55)';
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.72, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = R * 0.025;
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.72, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.62, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = R * 0.015;
+      ctx.beginPath();
+      for (let k = 0; k < 72; k++) {
+        const a = (k * Math.PI) / 36, r0 = k % 2 ? R * 0.67 : R * 0.63;
+        ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * R * 0.72, Math.sin(a) * R * 0.72);
+      }
+      ctx.stroke();
+      // Strahlen: 8 feine, 4 mittlere, 4 Hauptrichtungen
+      const ray = (ang, len, wid) => {
+        ctx.save(); ctx.rotate(ang);
+        point(ctx, len, wid, dark, light);
+        ctx.restore();
+      };
+      for (let k = 0; k < 8; k++) ray(Math.PI / 8 + (k * Math.PI) / 4, R * 0.5, R * 0.06);
+      for (let k = 0; k < 4; k++) ray(Math.PI / 4 + (k * Math.PI) / 2, R * 0.7, R * 0.1);
+      for (let k = 0; k < 4; k++) ray((k * Math.PI) / 2, R * 1.0, R * 0.14);
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.08, 0, Math.PI * 2); ctx.fillStyle = light; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.035, 0, Math.PI * 2); ctx.fillStyle = dark; ctx.fill();
+      // Lilie über Nord
+      const ly = -R * 1.12, ls = R * 0.16;
+      ctx.fillStyle = accent; ctx.strokeStyle = dark; ctx.lineWidth = R * 0.015;
+      ctx.beginPath();
+      ctx.moveTo(0, ly - ls * 1.4);
+      ctx.quadraticCurveTo(ls * 0.55, ly - ls * 0.6, 0, ly);
+      ctx.quadraticCurveTo(-ls * 0.55, ly - ls * 0.6, 0, ly - ls * 1.4);
+      ctx.moveTo(0, ly - ls * 0.2);
+      ctx.quadraticCurveTo(ls * 1.3, ly - ls * 1.2, ls * 0.9, ly + ls * 0.1);
+      ctx.quadraticCurveTo(ls * 0.5, ly - ls * 0.3, 0, ly);
+      ctx.moveTo(0, ly - ls * 0.2);
+      ctx.quadraticCurveTo(-ls * 1.3, ly - ls * 1.2, -ls * 0.9, ly + ls * 0.1);
+      ctx.quadraticCurveTo(-ls * 0.5, ly - ls * 0.3, 0, ly);
+      ctx.fill(); ctx.stroke();
+      ctx.fillRect(-ls * 0.6, ly + ls * 0.05, ls * 1.2, ls * 0.25);
+      // Himmelsrichtungen
+      ctx.fillStyle = dark;
+      ctx.font = `700 ${R * 0.2}px ${FONT_LABEL}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('O', R * 1.14, 0);
+      ctx.fillText('S', 0, R * 1.14);
+      ctx.fillText('W', -R * 1.14, 0);
+      ctx.restore();
+    }
+
+    // Sehenswürdigkeiten: Symbol und kleiner kursiver Name darunter
+    drawPois(ctx, map, unit, st, opts, view) {
+      const style = map.view.style;
+      for (const p of map.pois) {
+        const s = 4.6 * unit;
+        const ext = FMM.iconExtent[p.type] || [1, 1.5];
+        FMM.drawIcon(ctx, p.type, p.x, p.y, s, style, unit);
+        const size = 8.5 * unit;
+        const box = this.drawText(ctx, p.name, p.x, p.y + s * 0.6 + size * 0.85, {
+          font: `italic ${size}px ${FONT_TEXT}`, color: st.text, halo: st.halo, haloWidth: size * 0.26, alpha: 0.95,
+        });
+        this.hitBoxes.push({ type: 'poi', id: p.id, x: p.x, y: p.y - (ext[1] * s) / 2 + s * 0.6, r: Math.max(ext[0], ext[1] / 2) * s, w: 0, h: 0 });
+        this.hitBoxes.push({ type: 'poi', id: p.id, ...box });
+        if (opts.selection && opts.selection.type === 'poi' && opts.selection.id === p.id) {
+          ctx.save();
+          ctx.strokeStyle = '#e8a33d';
+          ctx.lineWidth = 2 / view.scale;
+          ctx.setLineDash([4 / view.scale, 3 / view.scale]);
+          ctx.beginPath(); ctx.arc(p.x, p.y - (ext[1] * s) / 2 + s * 0.6, Math.max(ext[0], ext[1] / 2) * s + 4 / view.scale, 0, Math.PI * 2); ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
     drawGrid(ctx, map, unit) {
       const W = map.width, H = map.height;
       const step = Math.round(Math.min(W, H) / 6);
@@ -828,6 +1022,7 @@
     }
 
     drawCompass(ctx, cx, cy, R, style) {
+      if (style === 'fantasy' || style === 'antique') return this.drawOrnateCompass(ctx, cx, cy, R, style);
       const dark = style === 'antique' ? '#4a3420' : '#2b2b30';
       const light = style === 'antique' ? '#efe0bb' : '#f4f1ea';
       ctx.save();
@@ -859,13 +1054,16 @@
       ctx.restore();
     }
 
-    drawScale(ctx, map, unit, st) {
+    drawScale(ctx, map, unit, st, corner, inset) {
+      corner = corner || 'bl'; inset = inset || 0;
       const km = map.settings.kmPerPixel || 4;
       const target = map.width * 0.16 * km;
       const pow = Math.pow(10, Math.floor(Math.log10(target)));
       const nice = [1, 2, 5, 10].map((m) => m * pow).filter((v) => v <= target).pop() || pow;
       const len = nice / km;
-      const x = 24 * unit, y = map.height - 26 * unit, hgt = 5 * unit;
+      const x = corner[1] === 'l' ? 24 * unit + inset : map.width - 24 * unit - inset - len;
+      const y = corner[0] === 'b' ? map.height - 26 * unit - inset : 30 * unit + inset;
+      const hgt = 5 * unit;
       ctx.save();
       ctx.globalAlpha = 0.9;
       for (let k = 0; k < 4; k++) {
@@ -881,7 +1079,8 @@
     }
 
     // Legende der Landschaftsformen (nur die auf der Karte vorkommenden)
-    drawLegend(ctx, map, unit, st) {
+    drawLegend(ctx, map, unit, st, corner, inset) {
+      corner = corner || 'br'; inset = inset || 0;
       if (map.view.style !== 'geo') return;
       if (!this.biomeCount) this.countBiomes(map);
       const total = this.biomeCount.reduce((a, b) => a + b, 0) || 1;
@@ -895,7 +1094,8 @@
       const tw = Math.max(...items.map((it) => ctx.measureText(it.name).width), ctx.measureText('Legende').width);
       const bw = pad * 2 + sw + 6 * unit + tw;
       const bh = pad * 2 + row * (items.length + 1);
-      const x = map.width - bw - 14 * unit, y = map.height - bh - 14 * unit;
+      const x = corner[1] === 'r' ? map.width - bw - 14 * unit - inset : 14 * unit + inset;
+      const y = corner[0] === 'b' ? map.height - bh - 14 * unit - inset : 14 * unit + inset;
       ctx.fillStyle = 'rgba(248,245,238,0.88)';
       ctx.strokeStyle = 'rgba(40,40,40,0.6)';
       ctx.lineWidth = 0.8 * unit;
@@ -934,6 +1134,174 @@
       this.biomeCount = cnt;
     }
 
+    // Ecke mit dem wenigsten Land (für die Kartusche), oder fest gewählt
+    cartoucheCorner(map) {
+      const pref = map.view.cartouche;
+      if (pref && pref !== 'auto') return pref;
+      const W = map.width, H = map.height, h = map.heights;
+      const cw = Math.round(W * 0.3), ch = Math.round(H * 0.24);
+      let best = 'tr', bestLand = Infinity;
+      for (const c of ['tr', 'tl', 'br', 'bl']) {
+        const x0 = c[1] === 'l' ? 0 : W - cw, y0 = c[0] === 't' ? 0 : H - ch;
+        let land = 0;
+        for (let y = y0; y < y0 + ch; y += 3) for (let x = x0; x < x0 + cw; x += 3) if (h[y * W + x] >= 0) land++;
+        if (land < bestLand * 0.85) { bestLand = land; best = c; }
+      }
+      return best;
+    }
+
+    // Titelkartusche: Pergament mit eingerollten Enden, Name, Untertitel und Symbol-Legende
+    drawCartouche(ctx, map, unit, corner, inset) {
+      const W = map.width, H = map.height;
+      const sty = map.view.style;
+      const ink = sty === 'antique' ? '#3b2a18' : '#2e2216';
+      const title = map.name || 'Unbenannte Karte';
+      const sub = map.subtitle || '';
+      // Symbol-Legende: Städte-Typen und vorkommende Sehenswürdigkeiten
+      const items = [['burg', 'Hauptstadt'], ['stadt', 'Stadt'], ['dorf', 'Dorf']];
+      if (map.pois && map.view.layers.pois !== false) {
+        const seen = new Set(map.pois.map((p) => p.type));
+        for (const k of Object.keys(FMM.POI_TYPES)) if (seen.has(k)) items.push([k, FMM.POI_TYPES[k]]);
+      }
+      ctx.save();
+      let ts = 30 * unit;
+      ctx.font = `700 ${ts}px ${FONT_LABEL}`;
+      let tw = ctx.measureText(title).width;
+      if (tw > 380 * unit) { ts *= (380 * unit) / tw; tw = 380 * unit; }
+      const ss = 13 * unit;
+      ctx.font = `italic ${ss}px ${FONT_TEXT}`;
+      const sw = sub ? ctx.measureText(sub).width : 0;
+      const cols = Math.min(items.length, 5), rows = Math.ceil(items.length / cols);
+      const cellW = 64 * unit, rowH = 38 * unit;
+      const bw = Math.max(tw + 70 * unit, sw + 70 * unit, cols * cellW + 50 * unit, 230 * unit);
+      const bh = 24 * unit + ts * 1.1 + (sub ? ss * 1.6 : 0) + 18 * unit + rows * rowH;
+      const m = 18 * unit + inset;
+      const x = corner[1] === 'l' ? m + 10 * unit : W - m - bw - 10 * unit;
+      const y = corner[0] === 't' ? m : H - m - bh;
+
+      // Schatten
+      ctx.fillStyle = 'rgba(30,20,10,0.25)';
+      ctx.fillRect(x + 4 * unit, y + 5 * unit, bw, bh);
+      // Pergament
+      const g = ctx.createLinearGradient(x, y, x, y + bh);
+      g.addColorStop(0, '#f4ead0'); g.addColorStop(0.5, '#ece0bf'); g.addColorStop(1, '#ddcb9f');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, bw, bh);
+      // eingerollte Enden links und rechts
+      const rr = 9 * unit;
+      for (const ex of [x, x + bw]) {
+        const rg = ctx.createLinearGradient(ex - rr, 0, ex + rr, 0);
+        rg.addColorStop(0, '#c9b282'); rg.addColorStop(0.45, '#f6ecd2'); rg.addColorStop(1, '#b89c66');
+        ctx.fillStyle = rg;
+        ctx.beginPath();
+        ctx.ellipse(ex, y + bh / 2, rr, bh / 2 + 6 * unit, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = ink; ctx.lineWidth = 0.9 * unit; ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(ex, y + bh / 2, rr * 0.45, bh / 2 + 2 * unit, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(60,40,20,0.45)'; ctx.lineWidth = 0.6 * unit; ctx.stroke();
+      }
+      // doppelter Rand
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1.4 * unit;
+      ctx.strokeRect(x + rr, y, bw - 2 * rr, bh);
+      ctx.lineWidth = 0.6 * unit;
+      ctx.strokeRect(x + rr + 5 * unit, y + 5 * unit, bw - 2 * rr - 10 * unit, bh - 10 * unit);
+      // Titel und Untertitel
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = `700 ${ts}px ${FONT_LABEL}`;
+      let yy = y + 18 * unit + ts * 0.9;
+      ctx.fillText(title, x + bw / 2, yy);
+      if (sub) {
+        ctx.font = `italic ${ss}px ${FONT_TEXT}`;
+        yy += ss * 1.5;
+        ctx.fillText(sub, x + bw / 2, yy);
+      }
+      // Trennlinie mit Raute
+      yy += 10 * unit;
+      const lx0 = x + bw * 0.2, lx1 = x + bw * 0.8, mx = x + bw / 2;
+      ctx.lineWidth = 0.7 * unit;
+      ctx.beginPath(); ctx.moveTo(lx0, yy); ctx.lineTo(mx - 6 * unit, yy); ctx.moveTo(mx + 6 * unit, yy); ctx.lineTo(lx1, yy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mx, yy - 3.5 * unit); ctx.lineTo(mx + 5 * unit, yy); ctx.lineTo(mx, yy + 3.5 * unit); ctx.lineTo(mx - 5 * unit, yy); ctx.closePath(); ctx.fill();
+      // Legende
+      yy += 8 * unit;
+      ctx.font = `${8.5 * unit}px ${FONT_TEXT}`;
+      const gx = x + bw / 2 - (cols * cellW) / 2;
+      items.forEach(([k, label], n) => {
+        const cx = gx + (n % cols + 0.5) * cellW;
+        const cy = yy + Math.floor(n / cols) * rowH;
+        const s = 5.4 * unit;
+        FMM.drawIcon(ctx, k, cx, cy + s * 1.6, s, sty === 'antique' ? 'antique' : 'fantasy', unit);
+        ctx.fillStyle = ink;
+        ctx.textAlign = 'center';
+        ctx.fillText(label, cx, cy + s * 2.3 + 8 * unit);
+      });
+      ctx.restore();
+    }
+
+    // Verzierter Rahmen: dunkles Band, Gradleiste, Doppellinie, Eckornamente
+    drawOrnateFrame(ctx, map, unit) {
+      const W = map.width, H = map.height;
+      const F = FRAME_W * unit;
+      const antique = map.view.style === 'antique';
+      const dark = antique ? '#4a3420' : '#2b2620', light = antique ? '#efe0bb' : '#efe6cf';
+      ctx.save();
+      // Band (Ring)
+      ctx.fillStyle = dark;
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      ctx.rect(F, H - F, W - 2 * F, -(H - 2 * F));
+      ctx.fill('evenodd');
+      // Gradleiste: abwechselnd helle und dunkle Felder
+      const b0 = F * 0.3, bw = F * 0.32;
+      const step = 26 * unit;
+      ctx.fillStyle = light;
+      ctx.fillRect(b0, b0, W - 2 * b0, bw);
+      ctx.fillRect(b0, H - b0 - bw, W - 2 * b0, bw);
+      ctx.fillRect(b0, b0, bw, H - 2 * b0);
+      ctx.fillRect(W - b0 - bw, b0, bw, H - 2 * b0);
+      ctx.fillStyle = dark;
+      for (let x = F, k = 0; x < W - F; x += step, k++) {
+        if (k % 2) continue;
+        const w = Math.min(step, W - F - x);
+        ctx.fillRect(x, b0, w, bw);
+        ctx.fillRect(x, H - b0 - bw, w, bw);
+      }
+      for (let y = F, k = 0; y < H - F; y += step, k++) {
+        if (k % 2) continue;
+        const h = Math.min(step, H - F - y);
+        ctx.fillRect(b0, y, bw, h);
+        ctx.fillRect(W - b0 - bw, y, bw, h);
+      }
+      ctx.strokeStyle = light;
+      ctx.lineWidth = 0.6 * unit;
+      ctx.strokeRect(b0, b0, W - 2 * b0, H - 2 * b0);
+      ctx.strokeRect(b0 + bw, b0 + bw, W - 2 * (b0 + bw), H - 2 * (b0 + bw));
+      // innere Doppellinie
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 1.2 * unit;
+      ctx.strokeRect(F + 2 * unit, F + 2 * unit, W - 2 * F - 4 * unit, H - 2 * F - 4 * unit);
+      // Eckornamente
+      for (const [cx, cy] of [[F * 0.65, F * 0.65], [W - F * 0.65, F * 0.65], [F * 0.65, H - F * 0.65], [W - F * 0.65, H - F * 0.65]]) {
+        const r = F * 0.62;
+        ctx.fillStyle = dark;
+        ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+        ctx.strokeStyle = light; ctx.lineWidth = 0.7 * unit;
+        ctx.strokeRect(cx - r * 0.8, cy - r * 0.8, 1.6 * r, 1.6 * r);
+        ctx.beginPath();
+        for (let k = 0; k < 8; k++) {
+          const a = (k * Math.PI) / 4, rr = k % 2 ? r * 0.3 : r * 0.62;
+          const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = light; ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, cy, r * 0.16, 0, Math.PI * 2); ctx.fillStyle = dark; ctx.fill();
+      }
+      ctx.restore();
+    }
+
     drawFrame(ctx, map, unit) {
       const W = map.width, H = map.height;
       ctx.save();
@@ -943,6 +1311,10 @@
         g.addColorStop(1, 'rgba(90,60,20,0.35)');
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, W, H);
+      }
+      if (map.view.layers.frame) {
+        this.drawOrnateFrame(ctx, map, unit);
+      } else if (map.view.style === 'antique') {
         ctx.strokeStyle = '#4a3420';
         ctx.lineWidth = 3 * unit;
         ctx.strokeRect(5 * unit, 5 * unit, W - 10 * unit, H - 10 * unit);
@@ -964,7 +1336,16 @@
       const ctx = c.getContext('2d');
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(this.base, 0, 0, c.width, c.height);
+      // Rasterbild für größere Exporte in höherer Auflösung neu berechnen (sonst unscharf hochskaliert)
+      const S = FMM.exportSupersampling(map, factor);
+      if (S > this.S) {
+        const hi = new Renderer();
+        hi.setMap(map, { S });
+        hi.renderBase(map, d);
+        ctx.drawImage(hi.base, 0, 0, c.width, c.height);
+      } else {
+        ctx.drawImage(this.base, 0, 0, c.width, c.height);
+      }
       const saved = this.hitBoxes;
       this.drawOverlay(ctx, map, d, { scale: factor, ox: 0, oy: 0 }, {});
       this.hitBoxes = saved;
@@ -984,6 +1365,19 @@
       }
     }
     out.push(p[4 * n - 4], p[4 * n - 3], p[4 * n - 2], p[4 * n - 1]);
+    return out;
+  }
+
+  // Chaikin-Glättung für Punktpaare [x, y, …]; Endpunkte bleiben
+  function chaikin2(p) {
+    const n = p.length / 2;
+    if (n < 3) return p;
+    const out = [p[0], p[1]];
+    for (let k = 0; k < n - 1; k++) {
+      const a = 2 * k, b = a + 2;
+      out.push(p[a] * 0.75 + p[b] * 0.25, p[a + 1] * 0.75 + p[b + 1] * 0.25, p[a] * 0.25 + p[b] * 0.75, p[a + 1] * 0.25 + p[b + 1] * 0.75);
+    }
+    out.push(p[2 * n - 2], p[2 * n - 1]);
     return out;
   }
 
@@ -1013,6 +1407,17 @@
     ctx.fillStyle = light; ctx.fill();
     ctx.strokeStyle = dark; ctx.lineWidth = len * 0.02; ctx.stroke();
   }
+
+  // Auflösung des Rasterbilds beim Export: bis zum Exportfaktor, höchstens 4× und ca. 25 Mio. Pixel
+  FMM.exportSupersampling = function (map, factor) {
+    const byMem = Math.floor(Math.sqrt(25e6 / (map.width * map.height)));
+    return Math.max(1, Math.min(Math.ceil(factor), 4, byMem));
+  };
+  // größte sichere Exportgröße (Browser-Grenzen für Canvas)
+  FMM.exportFits = function (map, factor) {
+    const w = map.width * factor, h = map.height * factor;
+    return w <= 16384 && h <= 16384 && w * h <= 120e6;
+  };
 
   FMM.Renderer = Renderer;
 })();

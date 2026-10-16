@@ -20,7 +20,8 @@
     const g = Math.max(5, Math.round(8 * unit)); // Rasterabstand in Zellen
     const out = [];
     // Städte freihalten
-    const cityNear = (x, y) => map.cities.some((c) => Math.abs(c.x - x) < 7 * unit && Math.abs(c.y - y) < 5 * unit);
+    const cityNear = (x, y) => map.cities.some((c) => Math.abs(c.x - x) < 7 * unit && Math.abs(c.y - y) < 5 * unit) ||
+      (map.pois || []).some((p) => Math.abs(p.x - x) < 7 * unit && y > p.y - 12 * unit && y < p.y + 6 * unit);
 
     // 1. Durchgang: Berge auf eigenem, weiterem Raster – größer, nur auf hohen Graten
     const gm = Math.max(7, Math.round(11 * unit));
@@ -97,6 +98,11 @@
     for (const c of map.cities) {
       const x0 = Math.max(0, Math.floor(c.x - 6 * unit)), x1 = Math.min(W - 1, Math.ceil(c.x + 6 * unit));
       const y0 = Math.max(0, Math.floor(c.y - 4 * unit)), y1 = Math.min(H - 1, Math.ceil(c.y + 4 * unit));
+      for (let yy = y0; yy <= y1; yy++) free.fill(1, yy * W + x0, yy * W + x1 + 1);
+    }
+    for (const p of map.pois || []) {
+      const x0 = Math.max(0, Math.floor(p.x - 7 * unit)), x1 = Math.min(W - 1, Math.ceil(p.x + 7 * unit));
+      const y0 = Math.max(0, Math.floor(p.y - 12 * unit)), y1 = Math.min(H - 1, Math.ceil(p.y + 6 * unit));
       for (let yy = y0; yy <= y1; yy++) free.fill(1, yy * W + x0, yy * W + x1 + 1);
     }
     const cityNear = (x, y) => free[(y | 0) * W + (x | 0)] === 1;

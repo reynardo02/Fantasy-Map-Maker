@@ -19,6 +19,7 @@
     biome: 'Landschaftsform malen (rechts auswählen) · „Automatisch“ entfernt Übermalungen',
     city: 'Klick auf freie Fläche: neue Stadt · Klick auf Stadt: auswählen · Ziehen: verschieben',
     label: 'Klick auf freie Fläche: neuer Text · Klick auf Text/Staatsnamen: auswählen · Ziehen: verschieben',
+    poi: 'Klick auf freie Fläche: neuer Ort (Typ rechts wählen) · Klick auf Ort: auswählen · Ziehen: verschieben',
   };
 
   class History {
@@ -52,7 +53,7 @@
         stateMap: this.cache.s.a,
         bv: app.biomeVersion,
         biomeMap: this.cache.b.a,
-        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, settings: map.settings }),
+        json: JSON.stringify({ states: map.states, cities: map.cities, labels: map.labels, pois: map.pois || [], subtitle: map.subtitle || '', settings: map.settings }),
       };
     }
     push() {
@@ -78,7 +79,7 @@
       if (snap.sv !== app.stateVersion) { map.stateMap = snap.stateMap.slice(); app.stateVersion = snap.sv; this.cache.s = { v: snap.sv, a: snap.stateMap }; }
       if (snap.bv !== app.biomeVersion) { map.biomeMap = snap.biomeMap.slice(); app.biomeVersion = snap.bv; this.cache.b = { v: snap.bv, a: snap.biomeMap }; }
       const o = JSON.parse(snap.json);
-      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.settings = o.settings;
+      map.states = o.states; map.cities = o.cities; map.labels = o.labels; map.pois = o.pois || []; map.subtitle = o.subtitle || ''; map.settings = o.settings;
       app.afterRestore(terrainChanged);
     }
     undo() {
@@ -178,7 +179,7 @@
       let c = 'default';
       if (this.spaceDown || this.tool === 'pan') c = this.pointer && this.pointer.kind === 'pan' ? 'grabbing' : 'grab';
       else if (BRUSH_TOOLS.has(this.tool)) c = 'none';
-      else if (this.tool === 'city' || this.tool === 'label') c = 'crosshair';
+      else if (this.tool === 'city' || this.tool === 'label' || this.tool === 'poi') c = 'crosshair';
       this.canvas.style.cursor = c;
     }
 
@@ -268,7 +269,7 @@
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (this.app.selection) { e.preventDefault(); this.app.deleteSelection(); } }
       else if (e.key === 'Escape') this.app.select(null);
       else if (!mod) {
-        const keys = { v: 'pan', h: 'raise', t: 'lower', g: 'smooth', e: 'flatten', l: 'land', m: 'sea', b: 'mountain', p: 'state', w: 'biome', c: 'city', x: 'label' };
+        const keys = { v: 'pan', h: 'raise', t: 'lower', g: 'smooth', e: 'flatten', l: 'land', m: 'sea', b: 'mountain', p: 'state', w: 'biome', c: 'city', x: 'label', o: 'poi' };
         const k = keys[e.key.toLowerCase()];
         if (k) this.setTool(k);
         else if (e.key === '+') this.zoomAt(this.cssW / 2, this.cssH / 2, 1.25);
@@ -289,7 +290,7 @@
       // Verschieben: mittlere/rechte Maustaste, Leertaste oder Bewegen-Werkzeug
       if (e.button === 1 || e.button === 2 || this.spaceDown || this.tool === 'pan') {
         let hit = null;
-        if (this.tool === 'pan' && e.button === 0 && !this.spaceDown) hit = this.hitTest(m.x, m.y, ['city', 'label', 'state']);
+        if (this.tool === 'pan' && e.button === 0 && !this.spaceDown) hit = this.hitTest(m.x, m.y, ['city', 'poi', 'label', 'state']);
         if (hit) {
           this.app.select(hit);
           this.pointer = { kind: 'drag', hit, start: m, moved: false };
@@ -326,6 +327,16 @@
           this.pointer = { kind: 'drag', hit, start: m, moved: false };
         } else {
           this.app.addCity(m.x, m.y);
+        }
+        return;
+      }
+      if (this.tool === 'poi') {
+        const hit = this.hitTest(m.x, m.y, ['poi']);
+        if (hit) {
+          this.app.select(hit);
+          this.pointer = { kind: 'drag', hit, start: m, moved: false };
+        } else {
+          this.app.addPoi(m.x, m.y);
         }
         return;
       }
