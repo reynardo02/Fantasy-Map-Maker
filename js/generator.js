@@ -568,6 +568,7 @@
       states: [],
       cities: [],
       labels: [],
+      pois: [],
     };
     map.heights = generateHeights(p, rng);
     const d0 = { latT: FMM.Derive.latitudeTemps(map) };
@@ -583,6 +584,7 @@
     generatePolitics(map, d, rng, p, names);
     map.labels = generateSeaLabels(map, d, rng, names);
     map.labels.push(...FMM.generateRegionLabels(map, d, rng));
+    map.pois = FMM.generatePois(map, d, rng);
     return map;
   };
 
@@ -601,9 +603,9 @@
   };
 
   FMM.STYLE_PRESETS = {
-    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true, symbols: false, cartouche: false, frame: false },
-    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true, symbols: false, cartouche: false, frame: false },
-    fantasy: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: false, roads: true, symbols: true, cartouche: true, frame: true },
-    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true, symbols: true, cartouche: true, frame: true },
+    geo: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: true, roads: true, symbols: false, cartouche: false, frame: false, pois: true },
+    political: { relief: true, rivers: true, borders: true, stateFill: true, cities: true, labels: true, stateLabels: true, grid: false, compass: true, scale: true, roads: true, symbols: false, cartouche: false, frame: false, pois: false },
+    fantasy: { relief: true, rivers: true, borders: false, stateFill: false, cities: true, labels: true, stateLabels: false, grid: false, compass: true, scale: true, legend: false, roads: true, symbols: true, cartouche: true, frame: true, pois: true },
+    antique: { relief: true, rivers: true, borders: true, stateFill: false, cities: true, labels: true, stateLabels: true, grid: true, compass: true, scale: true, roads: true, symbols: true, cartouche: true, frame: true, pois: true },
   };
 })();

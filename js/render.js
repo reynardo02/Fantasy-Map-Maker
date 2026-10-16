@@ -751,6 +751,8 @@
         }
       }
 
+      if (L.pois && map.pois) this.drawPois(ctx, map, unit, st, opts, view);
+
       if (L.cities) {
         // erst Symbole, dann Namen – Hauptstädte zuletzt (oben)
         const order = map.cities.slice().sort((a, b) => rank(a.type) - rank(b.type));
@@ -979,6 +981,30 @@
       ctx.fillText('S', 0, R * 1.14);
       ctx.fillText('W', -R * 1.14, 0);
       ctx.restore();
+    }
+
+    // Sehenswürdigkeiten: Symbol und kleiner kursiver Name darunter
+    drawPois(ctx, map, unit, st, opts, view) {
+      const style = map.view.style;
+      for (const p of map.pois) {
+        const s = 4.6 * unit;
+        const ext = FMM.iconExtent[p.type] || [1, 1.5];
+        FMM.drawIcon(ctx, p.type, p.x, p.y, s, style, unit);
+        const size = 8.5 * unit;
+        const box = this.drawText(ctx, p.name, p.x, p.y + s * 0.6 + size * 0.85, {
+          font: `italic ${size}px ${FONT_TEXT}`, color: st.text, halo: st.halo, haloWidth: size * 0.26, alpha: 0.95,
+        });
+        this.hitBoxes.push({ type: 'poi', id: p.id, x: p.x, y: p.y - (ext[1] * s) / 2 + s * 0.6, r: Math.max(ext[0], ext[1] / 2) * s, w: 0, h: 0 });
+        this.hitBoxes.push({ type: 'poi', id: p.id, ...box });
+        if (opts.selection && opts.selection.type === 'poi' && opts.selection.id === p.id) {
+          ctx.save();
+          ctx.strokeStyle = '#e8a33d';
+          ctx.lineWidth = 2 / view.scale;
+          ctx.setLineDash([4 / view.scale, 3 / view.scale]);
+          ctx.beginPath(); ctx.arc(p.x, p.y - (ext[1] * s) / 2 + s * 0.6, Math.max(ext[0], ext[1] / 2) * s + 4 / view.scale, 0, Math.PI * 2); ctx.stroke();
+          ctx.restore();
+        }
+      }
     }
 
     drawGrid(ctx, map, unit) {

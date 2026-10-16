@@ -20,6 +20,7 @@
     stateVersion: 0,
     biomeVersion: 0,
     paintBiome: FMM.BIOME_ID.wald,
+    newPoiType: 'ruinenstadt',
     newCityType: 'city',
     saveTimer: 0,
     uiTimer: 0,
@@ -90,6 +91,7 @@
       this.d = FMM.Derive.all(map);
       this.renderer.setMap(map);
       this.citySig = this.citySignature();
+      this.poiSig = this.poiSignature();
       this.renderer.renderBase(map, this.d);
       this.history.reset();
       this.updateUndoButtons();
@@ -149,6 +151,8 @@
     },
 
     onToolChanged(tool) {
+      $('poiCard').hidden = tool !== 'poi';
+      if (tool === 'poi' && this.map) this.renderPoiList();
       $('biomeCard').hidden = tool !== 'biome';
       if (tool !== 'biome' || !this.map) return;
       this.renderBiomeList();
@@ -160,6 +164,38 @@
         this.changed();
         this.toast('Landschaftsformen sind in der geografischen Ansicht sichtbar – Ansicht gewechselt');
       }
+    },
+
+    // Typenliste der Sehenswürdigkeiten mit kleinem Symbol
+    renderPoiList() {
+      const list = $('poiList');
+      list.innerHTML = Object.entries(FMM.POI_TYPES).map(([k, name]) => `<li data-type="${k}" class="${k === this.newPoiType ? 'active' : ''}">
+        <canvas class="poi-ico" width="40" height="32"></canvas><span class="nm">${esc(name)}</span></li>`).join('');
+      list.querySelectorAll('li').forEach((li) => {
+        const cv = li.querySelector('canvas');
+        const ext = FMM.iconExtent[li.dataset.type];
+        const s = Math.min(14 / ext[0], 26 / ext[1]);
+        FMM.drawIcon(cv.getContext('2d'), li.dataset.type, 20, 29 - s * 0.6, s, 'fantasy', 1.6);
+        li.addEventListener('click', () => {
+          this.newPoiType = li.dataset.type;
+          this.renderPoiList();
+        });
+      });
+    },
+
+    addPoi(x, y) {
+      const map = this.map;
+      const ix = Math.floor(x), iy = Math.floor(y);
+      if (ix < 0 || iy < 0 || ix >= map.width || iy >= map.height) return;
+      this.history.push();
+      const st = this.stateAt(x, y);
+      const culture = st ? st.culture : FMM.makeRng(Math.random()).pick(Object.keys(FMM.CULTURES));
+      if (!map.pois) map.pois = [];
+      const poi = { id: FMM.uid(), type: this.newPoiType, x, y, name: FMM.poiName(this.nameGen(), this.newPoiType, culture) };
+      map.pois.push(poi);
+      if (!map.view.layers.pois) { map.view.layers.pois = true; this.syncUi(); }
+      this.select({ type: 'poi', id: poi.id });
+      this.changed();
     },
 
     renderBiomeList() {
@@ -219,12 +255,23 @@
         this.citySig = sig;
         this.editor.requestDraw();
       }
+      // Orte verändert → Kartensymbole neu (sie halten Abstand zu Orten)
+      const psig = this.poiSignature();
+      if (psig !== this.poiSig) {
+        this.renderer.invalidateSymbols();
+        this.poiSig = psig;
+        this.editor.requestDraw();
+      }
       $('status').textContent = 'Ungespeicherte Änderungen …';
       this.savePending = true;
       clearTimeout(this.saveTimer);
       this.saveTimer = setTimeout(() => this.autosave(), immediate ? 200 : 1500);
       clearTimeout(this.uiTimer);
       this.uiTimer = setTimeout(() => { this.renderStateList(); this.renderMapInfo(); }, 150);
+    },
+
+    poiSignature() {
+      return this.map && this.map.pois ? this.map.pois.map((p) => Math.round(p.x) + ',' + Math.round(p.y)).join('|') : '';
     },
 
     citySignature() {
@@ -253,6 +300,7 @@
       if (s.type === 'city') return this.map.cities.find((c) => c.id === s.id);
       if (s.type === 'label') return this.map.labels.find((l) => l.id === s.id);
       if (s.type === 'state') return this.map.states.find((st) => st.id === s.id);
+      if (s.type === 'poi') return (this.map.pois || []).find((p) => p.id === s.id);
       return null;
     },
 
@@ -276,6 +324,7 @@
         }
       }
       else if (hit.type === 'state') { const s = map.states.find((o) => o.id === hit.id); if (s) { s.labelX = x; s.labelY = y; } }
+      else if (hit.type === 'poi') { const p = (map.pois || []).find((o) => o.id === hit.id); if (p) { p.x = x; p.y = y; } }
     },
 
     deleteSelection() {
@@ -289,6 +338,9 @@
       } else if (s.type === 'label') {
         this.history.push();
         map.labels = map.labels.filter((l) => l.id !== s.id);
+      } else if (s.type === 'poi') {
+        this.history.push();
+        map.pois = map.pois.filter((p) => p.id !== s.id);
       } else return;
       this.select(null);
       this.changed();
@@ -606,6 +658,16 @@
         this.editor.requestDraw();
         this.changed();
       });
+      $('btnGenPois').onclick = () => {
+        this.history.push();
+        this.map.pois = FMM.generatePois(this.map, this.d, FMM.makeRng(Math.random()));
+        if (!this.map.view.layers.pois) this.map.view.layers.pois = true;
+        if (this.selection && this.selection.type === 'poi') this.select(null);
+        this.syncUi();
+        this.editor.requestDraw();
+        this.changed();
+        this.toast(this.map.pois.length + ' Sehenswürdigkeiten verteilt');
+      };
       $('btnRegionNames').onclick = () => {
         this.history.push();
         const map = this.map;
@@ -886,6 +948,29 @@
           this.history.push();
           delete obj.labelX; delete obj.labelY; delete obj.labelSize; delete obj.labelAngle;
           this.renderSelection();
+          this.editor.requestDraw();
+          this.changed();
+        };
+      }
+      if (s.type === 'poi') {
+        const st = this.stateAt(obj.x, obj.y);
+        $('selTitle').textContent = 'Sehenswürdigkeit';
+        body.innerHTML = `<div class="form-grid">
+          <span>Name</span><span class="inline"><input id="selName" value="${esc(obj.name)}"><button id="selDice" title="Neuer Zufallsname">🎲</button></span>
+          <span>Typ</span><select id="selType">${Object.entries(FMM.POI_TYPES).map(([k, v]) => `<option value="${k}" ${k === obj.type ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        </div>
+        <div class="btn-row"><button id="selDelete" class="danger">🗑 Löschen</button></div>`;
+        this.bindField($('selName'), (v) => { obj.name = v; });
+        $('selType').addEventListener('change', (e) => {
+          this.history.push();
+          obj.type = e.target.value;
+          this.editor.requestDraw();
+          this.changed();
+        });
+        $('selDice').onclick = () => {
+          this.history.push();
+          obj.name = FMM.poiName(this.nameGen(), obj.type, st ? st.culture : 'germanisch');
+          $('selName').value = obj.name;
           this.editor.requestDraw();
           this.changed();
         };

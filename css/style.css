@@ -152,6 +152,7 @@ input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid v
 .state-list .ar { color: var(--muted); font-size: 11px; }
 .state-list li.none .nm { font-style: italic; color: var(--muted); }
 .biome-list { max-height: none; }
+.poi-ico { width: 25px; height: 20px; flex: none; }
 
 .form-grid { display: grid; grid-template-columns: 80px 1fr; gap: 6px 8px; align-items: center; font-size: 12.5px; margin-top: 10px; }
 .form-grid > span { color: var(--muted); }
