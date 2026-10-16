@@ -23,24 +23,38 @@
     [[210, 186, 138], [184, 170, 104], [118, 140, 62], [54, 106, 42]], // warm
     [[224, 198, 148], [202, 178, 112], [126, 144, 60], [40, 96, 38]], // heiß
   ];
+  // Gemalte Fantasy-Karte: helle Aquarelltöne – gelbgrünes Tiefland, Ocker, rötliche Wüsten
+  const FAN = [
+    [[240, 242, 240], [240, 242, 240], [240, 242, 240], [240, 242, 240]], // polar
+    [[206, 204, 178], [200, 202, 172], [190, 198, 162], [180, 192, 154]], // Tundra
+    [[214, 200, 156], [206, 204, 148], [188, 200, 132], [168, 190, 120]], // boreal
+    [[226, 208, 150], [216, 212, 142], [200, 210, 132], [178, 202, 118]], // gemäßigt
+    [[230, 190, 136], [226, 204, 140], [206, 208, 126], [176, 198, 108]], // warm
+    [[226, 160, 112], [228, 186, 128], [204, 198, 118], [164, 190, 98]], // heiß
+  ];
   const NL = 96;
-  const NAT_LUT = new Uint8Array(NL * NL * 3);
-  (function () {
-    const pick = (arr, v) => { let k = 0; while (k < arr.length - 2 && v > arr[k + 1]) k++; return [k, FMM.clamp((v - arr[k]) / (arr[k + 1] - arr[k]), 0, 1)]; };
+  const pickStop = (arr, v) => { let k = 0; while (k < arr.length - 2 && v > arr[k + 1]) k++; return [k, FMM.clamp((v - arr[k]) / (arr[k + 1] - arr[k]), 0, 1)]; };
+  // Temperatur × Feuchte → Farbe, stufenlos (bilinear mit weichen Übergängen)
+  function buildLut(table) {
+    const lut = new Uint8Array(NL * NL * 3);
     for (let ti = 0; ti < NL; ti++) {
-      const [a, fa] = pick(NAT_T, -0.1 + (ti / (NL - 1)) * 1.05);
+      const [a, fa] = pickStop(NAT_T, -0.1 + (ti / (NL - 1)) * 1.05);
       const sa = fa * fa * (3 - 2 * fa);
       for (let mi = 0; mi < NL; mi++) {
-        const [b, fb] = pick(NAT_M, mi / (NL - 1));
+        const [b, fb] = pickStop(NAT_M, mi / (NL - 1));
         const sb = fb * fb * (3 - 2 * fb);
         for (let c = 0; c < 3; c++) {
-          const v0 = FMM.lerp(NAT[a][b][c], NAT[a][b + 1][c], sb);
-          const v1 = FMM.lerp(NAT[a + 1][b][c], NAT[a + 1][b + 1][c], sb);
-          NAT_LUT[(ti * NL + mi) * 3 + c] = Math.round(FMM.lerp(v0, v1, sa));
+          const v0 = FMM.lerp(table[a][b][c], table[a][b + 1][c], sb);
+          const v1 = FMM.lerp(table[a + 1][b][c], table[a + 1][b + 1][c], sb);
+          lut[(ti * NL + mi) * 3 + c] = Math.round(FMM.lerp(v0, v1, sa));
         }
       }
     }
-  })();
+    return lut;
+  }
+  const NAT_LUT = buildLut(NAT);
+  const FAN_LUT = buildLut(FAN);
+  const FT_WALD = [104, 138, 72], FT_TAIGA = [84, 112, 76], FT_REGEN = [86, 134, 62];
   const OCEAN_LUT = new Uint8Array(256 * 3);
   for (let i = 0; i < 256; i++) {
     const dpt = i / 255;
@@ -53,6 +67,7 @@
   const STYLE = {
     geo: { river: '#3d76a6', riverAlpha: 0.85, text: '#1d1a16', halo: 'rgba(255,255,255,0.75)', sea: '#d8ecf5', seaHalo: 'rgba(20,50,80,0.55)', city: '#1d1a16', cityFill: '#ffffff', border: [120, 30, 30] },
     political: { river: '#4a80aa', riverAlpha: 0.9, text: '#2a221c', halo: 'rgba(250,246,236,0.85)', sea: '#356283', seaHalo: 'rgba(235,245,250,0.7)', city: '#2a221c', cityFill: '#ffffff', border: [70, 52, 48] },
+    fantasy: { river: '#3a6a9a', riverAlpha: 0.85, text: '#2e2216', halo: 'rgba(246,240,220,0.8)', sea: '#eef4f4', seaHalo: 'rgba(24,44,84,0.55)', city: '#2e2216', cityFill: '#f6efdc', border: [110, 40, 34] },
     antique: { river: '#4f6878', riverAlpha: 0.9, text: '#3b2a18', halo: 'rgba(236,222,186,0.8)', sea: '#5a4a32', seaHalo: 'rgba(236,222,186,0.6)', city: '#3b2a18', cityFill: '#efe1bd', border: [120, 50, 40] },
   };
   FMM.STYLE = STYLE;
@@ -145,9 +160,9 @@
       const zLand = 11 * (W / 1200) * (map.view.relief || 1);
       const zSea = 3 * (W / 1200);
       const lx = -0.62, ly = -0.62, lz = 0.48;
-      const reliefAmt = L.relief ? (style === 'geo' ? 0.8 : style === 'political' ? 0.7 : 0.9) : 0;
-      const sty = style === 'geo' ? 0 : style === 'political' ? 1 : 2;
-      const maxShade = sty === 0 ? 1.25 : sty === 1 ? 1.15 : 1.12;
+      const reliefAmt = L.relief ? (style === 'geo' ? 0.8 : style === 'political' ? 0.7 : style === 'fantasy' ? 0.38 : 0.9) : 0;
+      const sty = style === 'geo' ? 0 : style === 'political' ? 1 : style === 'fantasy' ? 3 : 2;
+      const maxShade = sty === 0 ? 1.25 : sty === 1 ? 1.15 : sty === 3 ? 1.08 : 1.12;
       const Wm = W - 1, Hm = H - 1;
 
       // Gradient pro Zelle (zentrale Differenz), später bilinear interpoliert → weiches Relief ohne Facetten
@@ -165,6 +180,45 @@
         }
       }
 
+
+      // Fantasy: Landschaftsform je Zelle vorab bestimmen (Waldflächen werden weich daraus interpoliert)
+      let forestK = null;
+      if (sty === 3) {
+        if (!this.forestK || this.forestK.length !== W * H) { this.forestK = new Float32Array(W * H); this.forestB = new Uint8Array(W * H); }
+        forestK = this.forestK;
+        const fb = this.forestB, R = 2;
+        const bx0 = Math.max(0, cx0 - 2 - R), bx1 = Math.min(W, cx1 + 2 + R), by0 = Math.max(0, cy0 - 2 - R), by1 = Math.min(H, cy1 + 2 + R);
+        for (let y = by0; y < by1; y++) {
+          for (let x = bx0; x < bx1; x++) {
+            const i = y * W + x, hv = h[i];
+            if (hv < 0 || lake[i]) { biome[i] = 255; fb[i] = 0; continue; }
+            const ov = bmap[i];
+            const sl = Math.sqrt(gxC[i] * gxC[i] + gyC[i] * gyC[i]) * slopeK;
+            const bi = ov !== 255 ? ov : FMM.classifyBiome(FMM.cellTemp(latT[y], hv), moist[i], hv, sl, rdist[i], veg[i], fine[i]);
+            biome[i] = bi;
+            fb[i] = forest[bi] ? 1 : 0;
+          }
+        }
+        // Waldanteil der Umgebung (5×5, separierbar) → weiche Waldränder ohne Treppenstufen
+        const fy0 = Math.max(0, cy0 - 2), fy1 = Math.min(H, cy1 + 2), fx0 = Math.max(0, cx0 - 2), fx1 = Math.min(W, cx1 + 2);
+        for (let y = by0; y < by1; y++) {
+          for (let x = fx0; x < fx1; x++) {
+            let n = 0, c = 0;
+            for (let xx = Math.max(0, x - R); xx <= Math.min(W - 1, x + R); xx++) { n += fb[y * W + xx]; c++; }
+            forestK[y * W + x] = n / c;
+          }
+        }
+        if (!this.forestT || this.forestT.length !== W * H) this.forestT = new Float32Array(W * H);
+        const ft = this.forestT;
+        for (let y = fy0; y < fy1; y++) {
+          for (let x = fx0; x < fx1; x++) {
+            let n = 0, c = 0;
+            for (let yy = Math.max(by0, y - R); yy <= Math.min(by1 - 1, y + R); yy++) { n += forestK[yy * W + x]; c++; }
+            ft[y * W + x] = n / c;
+          }
+        }
+        forestK = ft;
+      }
 
       for (let Y = cy0 * S; Y < cy1 * S; Y++) {
         let fy = (Y + 0.5) / S - 0.5;
@@ -230,6 +284,17 @@
                 if (depth > 0.038 && depth < 0.05 && fo > 0.05) { const q = 0.55 * wt; r += (214 - r) * q; g += (236 - g) * q; b += (222 - b) * q; }
               }
               if (lt < 0.06) { const f = FMM.smoothstep(0.06, -0.04, lt) * 0.85; r += (226 - r) * f; g += (236 - g) * f; b += (242 - b) * f; }
+            } else if (sty === 3) {
+              // Aquarell-Meer: tiefes Blau, zur Küste hin hell und türkis, wolkig gemalt
+              const dd = FMM.smoothstep(0.03, 0.6, depth);
+              r = 66 - dd * 34; g = 110 - dd * 50; b = 166 - dd * 46;
+              const near = 1 - FMM.smoothstep(0, 16, cdi);
+              const nf = near * near * 0.8;
+              r += (154 - r) * nf; g += (198 - g) * nf; b += (208 - b) * nf;
+              const pv = veg[i00] * w00 + veg[i10] * w10 + veg[i01] * w01 + veg[i11] * w11;
+              const kw = 1 + paper[i] * 0.07 + pv * 0.05;
+              r *= kw; g *= kw; b *= kw;
+              if (lt < 0.06) { const f = FMM.smoothstep(0.06, -0.04, lt) * 0.8; r += (232 - r) * f; g += (240 - g) * f; b += (244 - b) * f; }
             } else if (sty === 1) {
               r = 170 - depth * 40; g = 205 - depth * 35; b = 224 - depth * 20;
               if (Math.abs(cdi - 3) < 0.35 || Math.abs(cdi - 8) < 0.35 || Math.abs(cdi - 15) < 0.35) { r -= 24; g -= 18; b -= 10; }
@@ -242,6 +307,7 @@
           } else if (isLake) {
             if (sty === 0) { r = 50; g = 102; b = 142; }
             else if (sty === 1) { r = 150; g = 192; b = 214; }
+            else if (sty === 3) { r = 92; g = 146; b = 186; }
             else { r = 180; g = 170; b = 140; }
           } else {
             const t = FMM.cellTemp(lt, hv);
@@ -297,16 +363,22 @@
               if (alp > 0) { const f = alp * 0.55; r += (140 - r) * f; g += (138 - g) * f; b += (106 - b) * f; }
               const rock = Math.max(FMM.smoothstep(0.58, 0.82, hv + v * 0.04), FMM.smoothstep(1.0, 1.9, slope) * FMM.smoothstep(0.28, 0.45, hv));
               if (rock > 0) {
-                const kr = 0.92 + fn * 0.06 + 0.04 * Math.sin(hv * 90 + v * 6); // Gesteinsschichten
+                // Gesteinsschichten nur angedeutet – stärker wirken sie an Steilhängen wie Höhenlinien
+                const kr = 0.93 + fn * 0.06 + 0.012 * Math.sin(hv * 60 + v * 6);
                 const f = rock * 0.85;
                 r += (128 * kr - r) * f; g += (119 * kr - g) * f; b += (106 * kr - b) * f;
               }
               // Schneegrenze abhängig vom Breitengrad: im Kalten tiefer, im Warmen höher.
-              // Grate (positive Krümmung) tragen mehr Schnee, Täler weniger.
+              // Grate (positive Krümmung) tragen etwas mehr Schnee, Täler weniger – begrenzt, damit
+              // keine hellen Linien entlang von Geländekanten entstehen. Breiter, fleckiger Übergang.
               const snowLine = FMM.clamp(0.58 + (lt - 0.3) * 0.7, 0.36, 0.95);
               const snow = ov !== 255 && ov !== BI.fels ? 0
-                : FMM.smoothstep(snowLine + 0.03, snowLine + 0.17, hv + cv * 3.5 + v * 0.03);
-              if (snow > 0) { r += (244 - r) * snow; g += (247 - g) * snow; b += (250 - b) * snow; }
+                : FMM.smoothstep(snowLine, snowLine + 0.2, hv + FMM.clamp(cv, -0.05, 0.05) * 2 + v * 0.04 + fn * 0.025);
+              if (snow > 0) {
+                r += (232 - r) * snow; g += (236 - g) * snow; b += (242 - b) * snow;
+                // Licht auf Schnee nicht übersteuern, sonst wirkt er wie eine flache weiße Fläche
+                if (shade > 1) shade = 1 + (shade - 1) * (1 - 0.5 * snow);
+              }
               // Küsten: Steilküste mit dunklen Klippen, flache Küste mit Sandstrand
               const cdl = cd[i00] * w00 + cd[i10] * w10 + cd[i01] * w01 + cd[i11] * w11;
               if (cdl < 2.5 && slope > 0.5) {
@@ -316,6 +388,44 @@
                 const f = ((0.022 - hv) / 0.022) * 0.75 * (1 - slope / 0.5);
                 r += (222 - r) * f; g += (207 - g) * f; b += (166 - b) * f;
               }
+            } else if (sty === 3) {
+              const v = veg[i00] * w00 + veg[i10] * w10 + veg[i01] * w01 + veg[i11] * w11;
+              const fn = fine[i00] * w00 + fine[i10] * w10 + fine[i01] * w01 + fine[i11] * w11;
+              const rdi = rdist[i00] * w00 + rdist[i10] * w10 + rdist[i01] * w01 + rdist[i11] * w11;
+              const mI = moist[i00] * w00 + moist[i10] * w10 + moist[i01] * w01 + moist[i11] * w11;
+              const ov = bmap[i];
+              const bi = biome[i];
+              // Grundton aus Temperatur und Feuchte
+              const wet = FMM.clamp(mI + v * 0.12 + (rdi < 6 ? (6 - rdi) * 0.03 : 0), 0, 1);
+              const ti = FMM.clamp(((t + 0.1) / 1.05) * (NL - 1), 0, NL - 1) | 0;
+              const k = (ti * NL + ((wet * (NL - 1)) | 0)) * 3;
+              r = FAN_LUT[k]; g = FAN_LUT[k + 1]; b = FAN_LUT[k + 2];
+              if (ov !== 255) {
+                // gemalte Landschaft: deren Farbe, aufgehellt wie Aquarell
+                const c = FMM.BIOMES[ov].color;
+                r += (c[0] * 0.6 + 96 - r) * 0.7; g += (c[1] * 0.6 + 96 - g) * 0.7; b += (c[2] * 0.6 + 90 - b) * 0.7;
+              }
+              // Waldflächen: dunkelgrüne Lasur mit weichem, aber klarem Rand
+              const fk = forestK[i00] * w00 + forestK[i10] * w10 + forestK[i01] * w01 + forestK[i11] * w11;
+              const fa = FMM.smoothstep(0.3, 0.6, fk + fn * 0.06 + v * 0.05) * 0.6;
+              if (fa > 0) {
+                const fc = bi === BI.taiga ? FT_TAIGA : bi === BI.regenwald ? FT_REGEN : FT_WALD;
+                r += (fc[0] - r) * fa; g += (fc[1] - g) * fa; b += (fc[2] - b) * fa;
+              }
+              if (bi === BI.sumpf) { r += (150 - r) * 0.45; g += (160 - g) * 0.45; b += (118 - b) * 0.45; }
+              // Hochlagen graubraun, Gipfel über der Schneegrenze hell
+              const alp = FMM.smoothstep(0.42, 0.66, hv + v * 0.03);
+              if (alp > 0) { const f = alp * 0.6; r += (184 - r) * f; g += (174 - g) * f; b += (150 - b) * f; }
+              const snowLine = FMM.clamp(0.58 + (lt - 0.3) * 0.7, 0.36, 0.95);
+              const snow = FMM.smoothstep(snowLine, snowLine + 0.18, hv + v * 0.04) * 0.7;
+              if (snow > 0) { r += (236 - r) * snow; g += (238 - g) * snow; b += (238 - b) * snow; }
+              const ice = FMM.smoothstep(-0.02, -0.1, t + v * 0.02);
+              if (ice > 0) { r += (240 - r) * ice; g += (242 - g) * ice; b += (240 - b) * ice; }
+              // Aquarell: ungleichmäßiger Farbauftrag, dunklerer Pigmentrand an der Küste
+              const cdl = cd[i00] * w00 + cd[i10] * w10 + cd[i01] * w01 + cd[i11] * w11;
+              let kw = 1 + paper[i] * 0.06 + v * 0.035 + fn * 0.012;
+              if (cdl < 3) kw -= (3 - cdl) / 3 * 0.09;
+              r *= kw; g *= kw; b *= kw;
             } else if (sty === 1) {
               r = 240; g = 232; b = 208;
               const hi = FMM.smoothstep(0.35, 0.8, hv);
@@ -350,7 +460,7 @@
           }
 
           // feines Korn
-          const grain = (FMM.hash2(X, Y) - 0.5) * (sty === 0 ? 3 : 8);
+          const grain = (FMM.hash2(X, Y) - 0.5) * (sty === 0 ? 3 : sty === 3 ? 5 : 8);
           const o = (Y * PW + X) * 4;
           px[o] = r + grain;
           px[o + 1] = g + grain;
@@ -485,6 +595,16 @@
           ctx.strokeStyle = 'rgba(30,52,60,0.3)';
           ctx.lineWidth = 0.6 * unit;
           ctx.stroke(cc.lakes);
+        } else if (sty === 'fantasy') {
+          // heller Brandungssaum und feine Tuschelinie
+          ctx.strokeStyle = 'rgba(232,244,240,0.45)';
+          ctx.lineWidth = 2.6 * unit;
+          ctx.stroke(cc.coast);
+          ctx.strokeStyle = 'rgba(46,56,62,0.8)';
+          ctx.lineWidth = 0.75 * unit;
+          ctx.stroke(cc.coast);
+          ctx.lineWidth = 0.6 * unit;
+          ctx.stroke(cc.lakes);
         } else {
           ctx.strokeStyle = sty === 'political' ? 'rgba(52,66,74,0.9)' : 'rgba(74,52,32,0.95)';
           ctx.lineWidth = (sty === 'political' ? 1.0 : 1.3) * unit;
@@ -506,6 +626,12 @@
           ctx.stroke(rc.buckets[k]);
         }
         ctx.globalAlpha = 1;
+      }
+
+      // gezeichnete Symbole (Berge, Hügel, Bäume)
+      if (L.symbols && this.live !== 'terrain') {
+        if (!this.symbolCache || this.symbolCache.style !== sty) this.symbolCache = FMM.buildSymbols(map, d, this);
+        FMM.drawSymbols(ctx, this.symbolCache, sty, unit);
       }
 
       // Staatsgrenzen
@@ -556,12 +682,6 @@
         ctx.setLineDash([2.2 * unit, 1.8 * unit]);
         ctx.stroke(rc.minor);
         ctx.restore();
-      }
-
-      // gezeichnete Symbole (Berge, Hügel, Bäume)
-      if (L.symbols && this.live !== 'terrain') {
-        if (!this.symbolCache) this.symbolCache = FMM.buildSymbols(map, d, this);
-        FMM.drawSymbols(ctx, this.symbolCache, sty, unit);
       }
 
       if (L.grid) this.drawGrid(ctx, map, unit);
