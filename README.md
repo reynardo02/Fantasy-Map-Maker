@@ -40,7 +40,7 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 - Namensgenerator mit sechs Sprachstilen (nordisch, elbisch, romanisch, germanisch, orientalisch, rau) für Staaten, Städte und Meere
 
 ### Darstellungsstile
-- **Geografisch:** Landschaftsformen mit eigener Textur (Baumkronen in Wäldern, Dünen in Wüsten, Wasserlachen in Sümpfen), dazu Relief, Flüsse, Meerestiefen und eine Legende
+- **Geografisch:** natürliche, satellitenbildartige Farben, stufenlos aus Klima und Feuchtigkeit (Wüstensand bis tiefgrüner Wald), Wälder mit feiner Kronenstruktur, alpine Matten, Fels und Schnee im Gebirge, weiches Relief, Meerestiefen und Legende
 - **Politisch:** Staatsfarben, Grenzen und Staatsnamen, die sich der Form des Staats anpassen
 - **Antik:** Pergament-Look mit Gradnetz, Rahmen und Vignette
 - Küsten, Seeufer und Staatsgrenzen sind geglättete Vektorlinien; das Kartenbild wird in doppelter Auflösung berechnet
