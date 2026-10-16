@@ -23,13 +23,15 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 ### Weltgenerierung
 - Höhenkarte aus fraktalem Rauschen mit Domain Warping und Gebirgsketten aus Gratrauschen
 - Landformen: 2–3 etwa gleich große Kontinente (durch Meere getrennt), Superkontinent, große Insel, Archipel, Küstenregion oder freies Rauschen
-- Einstellbar: Landanteil, Gebirge, Strukturgröße, Flussdichte, Klima, Anzahl Staaten und Städte
+- Einstellbar: Kartengröße (800 × 500 bis 3200 × 2000 – dieselbe Welt, größere Karten zeigen mehr Details), Landanteil, Gebirge, Strukturgröße, Flussdichte, Klima, Anzahl Staaten und Städte
 - **Gleicher Seed = gleiche Welt**
 - Klima und Landschaftsformen: Gletscher, Hochgebirge, Tundra, Nadelwald, Laub- und Mischwald, Regenwald, Wiesen, Steppe, Savanne, Wüste, Sumpf. Entlang von Flüssen entstehen grüne Täler und Auwälder.
 - **Flüsse und Seen** aus einer echten Abflusssimulation (Senkenfüllung und Abflussakkumulation)
 - **Erosion:** Simulierte Regentropfen formen verzweigte Täler, scharfe Grate und Schwemmebenen. Die Stärke ist einstellbar, und über „Erosion anwenden“ lässt sie sich auch auf bestehende Karten anwenden.
-- **Wind und Regenschatten:** Feuchte Luft zieht vom Meer übers Land und regnet sich an Gebirgen ab, dahinter wird es trocken. Die Windrichtung folgt automatisch den Klimazonen (Westwinde, Passat aus Osten) oder wird frei gewählt.
-- **Kontinentalplatten:** Wo Platten zusammenstoßen, falten sich Gebirgsketten auf, auf See entstehen Inselbögen. Wo sie auseinanderdriften, entstehen Grabenbrüche.
+- **Klimazonen nach Breitengrad:** Jede Klima-Option entspricht einem Breitenbereich (z. B. Gemäßigt 70°–25° N, Äquator in der Mitte 72° N – 72° S). Daraus folgen Temperatur, Windgürtel und Regengürtel wie auf der Erde: feuchte Tropen, ein Wüstengürtel um 25°, feuchte Westküsten in mittleren Breiten, trockene Polargebiete.
+- **Wind und Regenschatten:** Feuchte Luft zieht vom Meer übers Land und regnet sich an Gebirgen ab, dahinter wird es trocken. Die Windrichtung folgt automatisch den Windgürteln (Passat bis ~30°, Westwinde bis ~60°, polare Ostwinde) oder wird frei gewählt. Das Innere großer Kontinente wird in kühlen Breiten trockener, Tropenwälder halten sich durch Verdunstung selbst feucht.
+- **Kontinentalplatten:** Wo Platten zusammenstoßen, falten sich lange Gebirgsketten mit Pässen und parallelen Graten auf, auf See entstehen Inselbögen. Wo sie auseinanderdriften, entstehen Grabenbrüche. An früheren Plattengrenzen liegen abgerundete Altgebirge, dazwischen Ebenen und Hügelland.
+- **Kontinente** sind zufällig gedreht und gestreckt und haben Halbinseln und Nebenkerne.
 - **Küstenvielfalt:** Sandstrände an flachen Küsten, Klippen an Steilküsten, Watt im gemäßigten Flachwasser, türkisfarbene Lagunen und Riffe in den Tropen, Fjorde an kalten Gebirgsküsten
 - **Flussmündungen:** Große Flüsse weiten sich trichterförmig, an flachen Küsten entstehen Deltaarme.
 - **Weiche Übergänge** zwischen den Landschaftsformen, mit einzelnen Bäumen vor dem Waldrand
