@@ -6,7 +6,7 @@ Ein Browser-Werkzeug zum Erstellen **realistisch aussehender Fantasy-Karten**, g
 ![Politische Ansicht](docs/vorschau-politisch.png)
 ![Fantasy-Ansicht](docs/vorschau-fantasy.png)
 
-Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt und keine Abhängigkeiten.
+Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt und keine Abhängigkeiten. Nur der optionale KI-Assistent lädt das Anthropic-SDK aus dem Netz und braucht einen eigenen API-Schlüssel.
 
 ## Starten
 
@@ -66,10 +66,22 @@ Die App läuft komplett im Browser. Es gibt keinen Server, keinen Build-Schritt 
 | Städte | `C` | Städte setzen, verschieben, umbenennen, zur Hauptstadt machen |
 | Texte | `X` | Beschriftungen und Meeresnamen setzen; Staatsnamen verschieben und drehen |
 | Orte | `O` | Sehenswürdigkeiten setzen, verschieben, umbenennen; „Neu verteilen“ erzeugt sie automatisch |
+| Skizze | `K` | Umriss zeichnen → natürliches Land mit ausgefranster Küste; mit Shift wird Land versenkt |
+| Gebirgslinie | `R` | Punkte klicken, Doppelklick oder Enter → Gebirgszug mit Graten und Pässen (Breite/Höhe: Pinsel-Regler) |
+| Fluss | `F` | Flusslauf von der Quelle zur Mündung zeichnen; das Tal wird eingetieft |
+| Verschieben | `U` | Landmasse anklicken und ziehen; Mausrad dreht, Shift+Mausrad skaliert; Städte und Namen wandern mit |
+| Neu würfeln | `N` | Rechteck aufziehen → nur dieser Bereich wird neu generiert („Nochmal“ für einen weiteren Versuch) |
+
+**Rechtsklick** auf die Karte öffnet ein Menü (Stadt/Ort/Text hier, Gebirge von hier, Landmasse verschieben, Umgebung neu würfeln, Umbenennen). **Doppelklick** auf eine Stadt, einen Ort oder einen Text springt direkt zum Umbenennen.
 
 Weitere Tasten: `Strg+Z` rückgängig, `Strg+Y` wiederholen, `Strg+S` als Datei speichern, `Entf` löscht die Auswahl, `[` `]` ändern die Pinselgröße, `+` `-` `0` zoomen.
 
 Nach Geländeänderungen werden Flüsse, Seen und Küsten automatisch neu berechnet. Neues Land fällt an den angrenzenden Staat.
+
+### KI-Assistent
+Über **✨ KI-Assistent** beschreibst du in eigenen Worten, wie die Welt aussehen soll – etwa „ein langgezogener Kontinent im Westen mit einer Gebirgskette an der Ostküste und einer Wüste im Süden“. Claude (Opus 5.5) sieht ein Bild der Karte und setzt den Wunsch mit denselben Werkzeugen um, die es auch in der Werkzeugleiste gibt: Land aufschütten oder versenken, Gebirgszüge, Flüsse, Landschaften, Landmassen verschieben, Klima, Städte, Orte und Namen. Jede Antwort lässt sich mit einem Klick rückgängig machen.
+
+Dafür braucht man einen eigenen **Anthropic-API-Schlüssel** (aus der [Anthropic Console](https://console.anthropic.com/settings/keys)). Er wird nur im eigenen Browser gespeichert und nur an `api.anthropic.com` gesendet. Jede Nachricht kostet je nach Umfang einige Cent; der Assistent zeigt die ungefähren Kosten an. Lehnt Claude eine Anfrage ab, übernimmt automatisch ein anderes Claude-Modell.
 
 ### Speichern und Weiterbearbeiten
 - **Automatisch im Browser** (IndexedDB). Unter „Meine Karten“ stehen alle Karten mit Vorschaubild.
@@ -86,6 +98,8 @@ js/names.js       Namensgenerator
 js/regions.js     Landschaftsregionen, Mittellinien, Landschafts- und Flussnamen
 js/pois.js        Sehenswürdigkeiten (Platzierung und Namen)
 js/icons.js       Gezeichnete Symbole für Städte und Sehenswürdigkeiten
+js/sculpt.js      „Skizze → Gelände“: Umrisse, Gebirgslinien, Flüsse, Verschieben, Neu würfeln
+js/ai.js          KI-Assistent (Chat, Werkzeuge für Claude, Kartenübersicht)
 js/biomes.js      Landschaftsformen (Einteilung und Farben)
 js/contours.js    Geglättete Konturen (Küsten, Seeufer, Grenzen)
 js/roads.js       Straßennetz (A*-Wegsuche)

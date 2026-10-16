@@ -31,6 +31,7 @@
       this.history = new FMM.History(this, 25);
       this.buildStaticUi();
       this.bindUi();
+      FMM.AI.init(this);
       this.editor.setTool('pan');
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden' && this.savePending) this.autosave();
@@ -837,9 +838,10 @@
         this.history.push();
         this.map.settings.climate = e.target.value;
         this.d.latT = FMM.Derive.latitudeTemps(this.map);
-        this.renderer.renderBase(this.map, this.d);
-        this.editor.requestDraw();
-        this.changed();
+        // Windgürtel und Regengürtel hängen von der Breite ab → Niederschlag neu
+        this.history.newVersion('terrain');
+        this.map.moisture = FMM.computeMoisture(this.map);
+        this.afterTerrainEdit(null);
       });
       $('riverDensity').addEventListener('change', (e) => {
         this.history.push();
