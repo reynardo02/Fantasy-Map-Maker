@@ -9,6 +9,7 @@
   const SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.131.0/+esm';
   const MODEL = 'claude-opus-5-5';
   const KEY_STORE = 'fmm.apiKey';
+  const WS_STORE = 'fmm.workspaceId';
   const MAX_STEPS = 25;
   // Preise Claude Opus 5.5 in $ pro Million Token (Eingabe, Ausgabe, Cache lesen, Cache schreiben)
   const PRICE = { in: 4, out: 20, cacheRead: 0.2, cacheWrite: 5 };
@@ -361,12 +362,17 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
         const k = $('aiKey').value.trim();
         try { if (k) localStorage.setItem(KEY_STORE, k); else localStorage.removeItem(KEY_STORE); } catch (e) { /* privater Modus */ }
         this.memKey = k;
+        const w = $('aiWorkspace').value.trim();
+        try { if (w) localStorage.setItem(WS_STORE, w); else localStorage.removeItem(WS_STORE); } catch (e) { /* privater Modus */ }
+        this.memWs = w;
         this.showSettings(false);
       };
       $('aiKeyRemove').onclick = () => {
-        try { localStorage.removeItem(KEY_STORE); } catch (e) { /* egal */ }
+        try { localStorage.removeItem(KEY_STORE); localStorage.removeItem(WS_STORE); } catch (e) { /* egal */ }
         this.memKey = '';
+        this.memWs = '';
         $('aiKey').value = '';
+        $('aiWorkspace').value = '';
       };
       this.renderEmpty();
     },
@@ -374,6 +380,11 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
     apiKey() {
       if (this.memKey) return this.memKey;
       try { return localStorage.getItem(KEY_STORE) || ''; } catch (e) { return ''; }
+    },
+
+    workspaceId() {
+      if (this.memWs) return this.memWs;
+      try { return localStorage.getItem(WS_STORE) || ''; } catch (e) { return ''; }
     },
 
     toggle(open) {
@@ -387,7 +398,7 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
 
     showSettings(on) {
       $('aiSettings').hidden = !on;
-      if (on) $('aiKey').value = this.apiKey();
+      if (on) { $('aiKey').value = this.apiKey(); $('aiWorkspace').value = this.workspaceId(); }
     },
 
     reset() {
@@ -455,7 +466,8 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
       try {
         const sdk = await this.loadSdk();
         const Anthropic = sdk.default || sdk.Anthropic;
-        const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+        const ws = this.workspaceId();
+        const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, defaultHeaders: ws ? { 'anthropic-workspace-id': ws } : undefined });
         for (let step = 0; step < MAX_STEPS && !this.aborted; step++) {
           this.setStatus(step ? 'Claude plant den nächsten Schritt …' : 'Claude denkt nach …');
           const msg = await this.request(client, sdk);
@@ -553,6 +565,11 @@ Antworte kurz und freundlich auf Deutsch. Fasse am Ende in ein bis drei Sätzen 
       else if (st === 403) msg = 'Keine Berechtigung für dieses Modell mit diesem Schlüssel.';
       else if (st === 429) msg = 'Zu viele Anfragen oder Ausgabenlimit erreicht. Bitte kurz warten und erneut versuchen.';
       else if (st === 529 || st === 503) msg = 'Claude ist gerade überlastet. Bitte gleich noch einmal versuchen.';
+      else if (st === 400 && /workspace/i.test(String(e.message))) {
+        msg = 'Dein API-Schlüssel ist keinem Workspace zugeordnet. Trage in den Einstellungen (⚙) die Workspace-ID ein (Console → Settings → Workspaces) oder erstelle einen Schlüssel innerhalb eines Workspace.';
+        this.showSettings(true);
+        setTimeout(() => $('aiWorkspace').focus(), 0);
+      }
       else if (st === 400) msg = 'Die Anfrage wurde abgelehnt: ' + String(e.message).slice(0, 300);
       else if (!st) msg = 'Keine Verbindung zur Claude-API (' + String((e && e.message) || e).slice(0, 160) + ').';
       else msg = `Fehler ${st}: ${String(e.message).slice(0, 200)}`;
